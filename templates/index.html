@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Familia Lucena // Finanças</title>
+    
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons (CDN) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Chart.js (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom Styleheet -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Fundo Líquido Desfocado -->
+    <div class="liquid-bg">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <!-- Container de Autenticação (Login e Cadastro) -->
+    <div id="login-container" style="display: none; min-height: 100vh; width: 100vw; align-items: center; justify-content: center; padding: 2rem; box-sizing: border-box; position: relative; z-index: 10;">
+        <div class="glass glass-card" style="width: 100%; max-width: 420px; padding: 2.5rem; box-sizing: border-box; text-align: center; border-radius: 20px;">
+            
+            <!-- Visão de Login -->
+            <div id="auth-login-view">
+                <div style="margin-bottom: 2rem;">
+                    <div style="display: inline-flex; align-items: center; justify-content: center; width: 50px; height: 50px; border-radius: 12px; background: rgba(99, 102, 241, 0.15); margin-bottom: 1rem; border: 1px solid var(--glass-border);">
+                        <i data-lucide="shield-check" style="width: 24px; height: 24px; color: var(--primary-color);"></i>
+                    </div>
+                    <h2 style="font-weight: 800; font-size: 1.5rem; letter-spacing: -0.02em; margin-bottom: 0.4rem;">FAMÍLIA LUCENA</h2>
+                    <span class="text-gray" style="font-size: 0.8rem; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;">Portal de Finanças</span>
+                </div>
+                
+                <form onsubmit="app.handleAuthLogin(event)">
+                    <div class="form-group" style="margin-bottom: 1.2rem; text-align: left;">
+                        <label for="login-cpf" style="font-weight: 500; font-size: 0.85rem; margin-bottom: 0.4rem; display: block;">CPF</label>
+                        <input type="text" id="login-cpf" class="glass-input" required placeholder="000.000.000-00" oninput="app.formatCPF(this)">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 2rem; text-align: left;">
+                        <label for="login-senha" style="font-weight: 500; font-size: 0.85rem; margin-bottom: 0.4rem; display: block;">Senha</label>
+                        <input type="password" id="login-senha" class="glass-input" required placeholder="Digite sua senha">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.85rem; border-radius: 10px; font-weight: 600; font-size: 0.95rem;">
+                        <span>Entrar no Sistema</span>
+                        <i data-lucide="arrow-right" style="width: 16px; height: 16px; margin-left: 0.5rem; vertical-align: middle;"></i>
+                    </button>
+                </form>
+                
+                <p class="text-gray" style="font-size: 0.85rem; margin-top: 2rem;">
+                    Novo no portal? <a href="#" onclick="app.showAuthRegisterView(); event.preventDefault();" style="color: var(--primary-color); font-weight: 600; text-decoration: none; border-bottom: 1px dashed var(--primary-color);">Crie uma conta</a>
+                </p>
+            </div>
+            
+            <!-- Visão de Cadastro -->
+            <div id="auth-register-view" style="display: none;">
+                <div style="margin-bottom: 2rem;">
+                    <div style="display: inline-flex; align-items: center; justify-content: center; width: 50px; height: 50px; border-radius: 12px; background: rgba(99, 102, 241, 0.15); margin-bottom: 1rem; border: 1px solid var(--glass-border);">
+                        <i data-lucide="user-plus" style="width: 24px; height: 24px; color: var(--primary-color);"></i>
+                    </div>
+                    <h2 style="font-weight: 800; font-size: 1.5rem; letter-spacing: -0.02em; margin-bottom: 0.4rem;">Criar Nova Conta</h2>
+                    <span class="text-gray" style="font-size: 0.8rem; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;">Cadastro Individual</span>
+                </div>
+                
+                <form onsubmit="app.handleAuthRegister(event)">
+                    <div class="form-group" style="margin-bottom: 1.2rem; text-align: left;">
+                        <label for="register-nome" style="font-weight: 500; font-size: 0.85rem; margin-bottom: 0.4rem; display: block;">Nome Completo</label>
+                        <input type="text" id="register-nome" class="glass-input" required placeholder="Ex: Henrico Lucena">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.2rem; text-align: left;">
+                        <label for="register-cpf" style="font-weight: 500; font-size: 0.85rem; margin-bottom: 0.4rem; display: block;">CPF</label>
+                        <input type="text" id="register-cpf" class="glass-input" required placeholder="000.000.000-00" oninput="app.formatCPF(this)">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 2rem; text-align: left;">
+                        <label for="register-senha" style="font-weight: 500; font-size: 0.85rem; margin-bottom: 0.4rem; display: block;">Senha de Acesso</label>
+                        <input type="password" id="register-senha" class="glass-input" required placeholder="Crie uma senha segura">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.85rem; border-radius: 10px; font-weight: 600; font-size: 0.95rem;">
+                        <span>Cadastrar e Entrar</span>
+                        <i data-lucide="check-circle" style="width: 16px; height: 16px; margin-left: 0.5rem; vertical-align: middle;"></i>
+                    </button>
+                </form>
+                
+                <p class="text-gray" style="font-size: 0.85rem; margin-top: 2rem;">
+                    Já possui conta? <a href="#" onclick="app.showAuthLoginView(); event.preventDefault();" style="color: var(--primary-color); font-weight: 600; text-decoration: none; border-bottom: 1px dashed var(--primary-color);">Fazer login</a>
+                </p>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- Container Principal da Aplicação -->
+    <div class="app-container">
+        
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar glass">
+            <div class="sidebar-header">
+                <div class="sidebar-brand-row">
+                    <div class="logo">
+                        <span class="logo-bold">FAMILIA LUCENA</span>
+                        <span class="logo-sub">// FINANÇAS</span>
+                    </div>
+                    <button id="theme-toggle" class="btn-theme-toggle" onclick="app.toggleTheme()" title="Alternar Tema">
+                        <i data-lucide="sun"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <nav class="sidebar-menu">
+                <a href="#/dashboard" class="menu-item active" data-view="dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#/transacoes" class="menu-item" data-view="transacoes">
+                    <i data-lucide="arrow-left-right"></i>
+                    <span>Transações</span>
+                </a>
+                <a href="#/contas-cartoes" class="menu-item" data-view="contas-cartoes">
+                    <i data-lucide="credit-card"></i>
+                    <span>Contas & Cartões</span>
+                </a>
+                <a href="#/faturas" class="menu-item" data-view="faturas">
+                    <i data-lucide="receipt"></i>
+                    <span>Faturas</span>
+                </a>
+                <a href="#/orcamentos" class="menu-item" data-view="orcamentos">
+                    <i data-lucide="sliders"></i>
+                    <span>Orçamentos</span>
+                </a>
+                <a href="#/metas" class="menu-item" data-view="metas">
+                    <i data-lucide="target"></i>
+                    <span>Metas de Economia</span>
+                </a>
+                <a href="#/investimentos" class="menu-item" data-view="investimentos">
+                    <i data-lucide="trending-up"></i>
+                    <span>Investimentos</span>
+                </a>
+                <a href="#/configuracoes" class="menu-item" data-view="configuracoes">
+                    <i data-lucide="settings"></i>
+                    <span>Configurações</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="month-selector-wrapper" style="margin-bottom: 1.2rem;">
+                    <label for="global-month">Mês de Referência</label>
+                    <div class="custom-select-month">
+                        <input type="month" id="global-month" class="glass-input">
+                    </div>
+                </div>
+                
+                <!-- Identificação do Usuário Logado e Logout -->
+                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--glass-border); padding-top: 1rem; margin-top: 1rem;">
+                    <div style="display: flex; flex-direction: column; overflow: hidden; max-width: 150px; text-align: left;">
+                        <span style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500;">Usuário</span>
+                        <span id="logged-user-name" style="font-size: 0.85rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; width: 100%; color: var(--text-color);">Henrico Lucena</span>
+                    </div>
+                    <button onclick="app.handleAuthLogout()" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 0.4rem; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: background 0.2s;" title="Sair do Sistema">
+                        <i data-lucide="log-out" style="width: 18px; height: 18px;"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Área Principal de Conteúdo -->
+        <main class="main-content">
+            <!-- Topbar / Header -->
+            <header class="topbar">
+                <div class="topbar-welcome">
+                    <h1 id="view-title">Dashboard</h1>
+                    <p id="view-subtitle" class="text-gray">Bem-vindo ao seu controle financeiro premium.</p>
+                </div>
+                <div class="topbar-actions">
+                    <button class="btn btn-primary btn-liquid" onclick="app.openModalTransacao()">
+                        <i data-lucide="plus"></i> Nova Transação
+                    </button>
+                </div>
+            </header>
+
+            <!-- Container Renderizador da View do SPA -->
+            <div id="app-view" class="view-panel transition-fade">
+                <!-- Injetado dinamicamente via JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- ==================== REUSABLE MODALS ==================== -->
+
+    <!-- 1. Modal: Nova Transação -->
+    <div id="modal-transacao" class="modal-overlay">
+        <div class="modal-content glass modal-lg">
+            <div class="modal-header">
+                <h2>Nova Transação</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-transacao')">&times;</button>
+            </div>
+            <form id="form-transacao" onsubmit="app.handleSaveTransacao(event)">
+                <input type="hidden" id="t-id">
+                
+                <div class="modal-grid-two-cols" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.8rem; align-items: start;">
+                    <!-- Coluna Esquerda: Dados Principais -->
+                    <div style="display: flex; flex-direction: column; gap: 1.2rem;">
+                        <div class="form-group">
+                            <label>Tipo de Transação</label>
+                            <div class="row-radio" style="display: flex; gap: 0.8rem; margin-top: 0.2rem;">
+                                <label class="radio-label">
+                                    <input type="radio" name="tipo" value="DESPESA" checked onchange="app.onTipoTransacaoChange()">
+                                    <span class="radio-btn">Despesa</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="tipo" value="RECEITA" onchange="app.onTipoTransacaoChange()">
+                                    <span class="radio-btn">Receita</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="tipo" value="TRANSFERENCIA" onchange="app.onTipoTransacaoChange()">
+                                    <span class="radio-btn">Transferência</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="t-descricao">Descrição</label>
+                            <input type="text" id="t-descricao" class="glass-input" required placeholder="Ex: Compra de Supermercado">
+                        </div>
+
+                        <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="t-valor">Valor (R$)</label>
+                                <input type="number" id="t-valor" class="glass-input" step="0.01" required placeholder="0,00">
+                            </div>
+                            <div class="form-group">
+                                <label for="t-data">Data</label>
+                                <input type="date" id="t-data" class="glass-input" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="t-pessoa">Pessoa Responsável</label>
+                            <select id="t-pessoa" class="glass-select">
+                                <option value="Compartilhado">Geral / Compartilhado</option>
+                                <option value="Henrico">Henrico</option>
+                                <option value="Thamires">Thamires</option>
+                                <option value="Maria Heloísa">Maria Heloísa</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Coluna Direita: Destinação e Detalhes -->
+                    <div style="display: flex; flex-direction: column; gap: 1.2rem;">
+                        <!-- Grupo de Origem e Destino dos Fundos (Visualmente delimitado) -->
+                        <div class="glass-inner-box" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 0;">
+                            <div style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem;">Origem & Destino</div>
+                            
+                            <!-- Campo dinâmico: Forma de pagamento (somente despesas) -->
+                            <div class="form-group" id="group-forma-pagamento" style="margin-bottom: 0;">
+                                <label for="t-forma-pagamento">Forma de Pagamento</label>
+                                <select id="t-forma-pagamento" class="glass-select" onchange="app.onFormaPagamentoChange()">
+                                    <option value="CONTA">Débito em Conta / Dinheiro</option>
+                                    <option value="CARTAO">Cartão de Crédito</option>
+                                </select>
+                            </div>
+
+                            <!-- Campo dinâmico: Conta de Origem (despesas e transferências) -->
+                            <div class="form-group" id="group-conta-origem" style="margin-bottom: 0;">
+                                <label for="t-conta-origem" id="label-conta-origem">Conta de Origem</label>
+                                <select id="t-conta-origem" class="glass-select"></select>
+                            </div>
+
+                            <!-- Campo dinâmico: Cartão de Crédito (despesa no cartão) -->
+                            <div class="form-group" id="group-cartao" style="display: none; margin-bottom: 0;">
+                                <label for="t-cartao">Cartão de Crédito</label>
+                                <select id="t-cartao" class="glass-select"></select>
+                            </div>
+
+                            <!-- Campo dinâmico: Conta de Destino (receitas e transferências) -->
+                            <div class="form-group" id="group-conta-destino" style="display: none; margin-bottom: 0;">
+                                <label for="t-conta-destino">Conta de Destino</label>
+                                <select id="t-conta-destino" class="glass-select"></select>
+                            </div>
+                        </div>
+
+                        <!-- Categoria (despesas e receitas) -->
+                        <div class="form-group" id="group-categoria">
+                            <label for="t-categoria">Categoria</label>
+                            <select id="t-categoria" class="glass-select"></select>
+                        </div>
+
+                        <!-- Pagador / Recebedor -->
+                        <div class="form-group" id="group-pagador-recebedor">
+                            <label for="t-pagador" id="label-pagador">Fornecedor / Destinatário</label>
+                            <input type="text" id="t-pagador" class="glass-input" placeholder="Ex: Empresa SA">
+                        </div>
+
+                        <!-- Opção de Parcelamento (somente despesas) -->
+                        <div class="form-row" id="group-parcelamento" style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.8rem; align-items: center; margin-bottom: 0;">
+                            <div class="form-group inline-checkbox" style="margin-bottom: 0;">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="t-parcelado" onchange="app.onParceladoChange()">
+                                    <span>Compra Parcelada</span>
+                                </label>
+                            </div>
+                            <div class="form-group" id="group-parcelas-qtd" style="display: none; margin-bottom: 0;">
+                                <label for="t-parcelas" style="font-size: 0.75rem;">Nº Parcelas</label>
+                                <input type="number" id="t-parcelas" class="glass-input" style="padding: 0.5rem 0.8rem;" min="2" max="72" value="2">
+                            </div>
+                        </div>
+
+                        <!-- Opções de Status e Despesa/Receita Fixa -->
+                        <div class="form-row" style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 0.8rem; align-items: center; margin-bottom: 0;">
+                            <div class="form-group inline-checkbox" id="group-confirmado" style="margin-bottom: 0;">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="t-confirmado" checked>
+                                    <span id="label-confirmado">Confirmado / Pago</span>
+                                </label>
+                            </div>
+                            <div class="form-group inline-checkbox" id="group-recorrente" style="margin-bottom: 0;">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="t-recorrente">
+                                    <span id="label-recorrente">Despesa Fixa</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Opção de Salvar e Cadastrar Próxima -->
+                <div class="form-group inline-checkbox" id="group-salvar-proxima" style="margin-top: 1.2rem; margin-bottom: 1rem; border-top: 1px solid var(--glass-border); padding-top: 0.8rem;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="t-salvar-proxima">
+                        <span>Salvar e cadastrar próxima transação</span>
+                    </label>
+                </div>
+
+                <div class="modal-footer" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--glass-border);">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-transacao')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. Modal: Nova Conta / Cartão -->
+    <div id="modal-conta-cartao" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2>Adicionar Conta ou Cartão</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-conta-cartao')">&times;</button>
+            </div>
+            
+            <div class="form-group row-radio">
+                <label class="radio-label">
+                    <input type="radio" name="item-tipo" value="CONTA" checked onchange="app.onItemTipoChange()">
+                    <span class="radio-btn">Conta Bancária / Carteira</span>
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="item-tipo" value="CARTAO" onchange="app.onItemTipoChange()">
+                    <span class="radio-btn">Cartão de Crédito</span>
+                </label>
+            </div>
+
+            <!-- Form Conta Bancária -->
+            <form id="form-conta" onsubmit="app.handleSaveConta(event)">
+                <div class="form-group">
+                    <label for="c-nome">Nome da Conta / Banco</label>
+                    <input type="text" id="c-nome" class="glass-input" required placeholder="Ex: Itaú Personalité">
+                </div>
+                <div class="form-group">
+                    <label for="c-banco">Nome da Instituição Financeira (Banco)</label>
+                    <input type="text" id="c-banco" class="glass-input" placeholder="Ex: Itaú Unibanco (341)">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="c-agencia">Agência</label>
+                        <input type="text" id="c-agencia" class="glass-input" placeholder="Ex: 0001">
+                    </div>
+                    <div class="form-group">
+                        <label for="c-numero-conta">Número da Conta</label>
+                        <input type="text" id="c-numero-conta" class="glass-input" placeholder="Ex: 12345-6">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="c-tipo">Tipo de Conta</label>
+                        <select id="c-tipo" class="glass-select">
+                            <option value="CORRENTE">Conta Corrente</option>
+                            <option value="POUPANCA">Poupança</option>
+                            <option value="INVESTIMENTO">Investimento</option>
+                            <option value="DINHEIRO">Dinheiro (Espécie)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="c-saldo">Saldo Inicial (R$)</label>
+                        <input type="number" id="c-saldo" class="glass-input" step="0.01" value="0.00">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="c-pessoa">Titular / Responsável</label>
+                    <select id="c-pessoa" class="glass-select">
+                        <option value="Compartilhado">Geral / Compartilhado</option>
+                        <option value="Henrico">Henrico</option>
+                        <option value="Thamires">Thamires</option>
+                        <option value="Maria Heloísa">Maria Heloísa</option>
+                    </select>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-conta-cartao')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Conta</button>
+                </div>
+            </form>
+
+            <!-- Form Cartão de Crédito -->
+            <form id="form-cartao" onsubmit="app.handleSaveCartao(event)" style="display: none;">
+                <div class="form-group">
+                    <label for="card-nome">Nome do Cartão</label>
+                    <input type="text" id="card-nome" class="glass-input" required placeholder="Ex: Black Visa Infinite">
+                </div>
+                <div class="form-group">
+                    <label for="card-limite">Limite de Crédito (R$)</label>
+                    <input type="number" id="card-limite" class="glass-input" step="0.01" required placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label for="card-conta-pagamento">Conta Bancária Vinculada (Opcional)</label>
+                    <select id="card-conta-pagamento" class="glass-select"></select>
+                </div>
+                <div class="form-group">
+                    <label for="card-pessoa">Titular do Cartão</label>
+                    <select id="card-pessoa" class="glass-select">
+                        <option value="Compartilhado">Geral / Compartilhado</option>
+                        <option value="Henrico">Henrico</option>
+                        <option value="Thamires">Thamires</option>
+                        <option value="Maria Heloísa">Maria Heloísa</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="card-fechamento">Dia do Fechamento</label>
+                        <input type="number" id="card-fechamento" class="glass-input" min="1" max="31" required placeholder="Ex: 5">
+                    </div>
+                    <div class="form-group">
+                        <label for="card-vencimento">Dia do Vencimento</label>
+                        <input type="number" id="card-vencimento" class="glass-input" min="1" max="31" required placeholder="Ex: 12">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-conta-cartao')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Cartão</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 3. Modal: Definir Orçamento -->
+    <div id="modal-categoria-orcamento" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2>Definir Orçamento Mensal</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-categoria-orcamento')">&times;</button>
+            </div>
+            
+            <form id="form-orcamento" onsubmit="app.handleSaveOrcamento(event)">
+                <div class="form-group">
+                    <label for="orc-categoria">Categoria (Apenas Despesas)</label>
+                    <select id="orc-categoria" class="glass-select" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="orc-limite">Limite Mensal (R$)</label>
+                        <input type="number" id="orc-limite" class="glass-input" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="orc-mes">Mês correspondente</label>
+                        <input type="month" id="orc-mes" class="glass-input" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-categoria-orcamento')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Definir Orçamento</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 4. Modal: Nova Meta -->
+    <div id="modal-meta" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2>Nova Meta Financeira</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-meta')">&times;</button>
+            </div>
+            <form id="form-meta" onsubmit="app.handleSaveMeta(event)">
+                <div class="form-group">
+                    <label for="meta-nome">Nome do Objetivo</label>
+                    <input type="text" id="meta-nome" class="glass-input" required placeholder="Ex: Reserva de Emergência">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="meta-alvo">Valor Alvo (R$)</label>
+                        <input type="number" id="meta-alvo" class="glass-input" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-data">Data Limite (Opcional)</label>
+                        <input type="date" id="meta-data" class="glass-input">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="meta-pessoa">Responsável pela Meta</label>
+                    <select id="meta-pessoa" class="glass-select">
+                        <option value="Compartilhado">Geral / Compartilhado</option>
+                        <option value="Henrico">Henrico</option>
+                        <option value="Thamires">Thamires</option>
+                        <option value="Maria Heloísa">Maria Heloísa</option>
+                    </select>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-meta')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Meta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 5. Modal: Pagar Fatura de Cartão -->
+    <div id="modal-pagar-fatura" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2>Pagar Fatura de Cartão</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-pagar-fatura')">&times;</button>
+            </div>
+            <form id="form-pagar-fatura" onsubmit="app.handleSavePagarFatura(event)">
+                <input type="hidden" id="fatura-cartao-id">
+                <div class="form-group">
+                    <label>Cartão Selecionado</label>
+                    <input type="text" id="fatura-cartao-nome" class="glass-input" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="fatura-mes">Mês da Fatura</label>
+                    <input type="month" id="fatura-mes" class="glass-input" required onchange="app.onFaturaMesChange()">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="fatura-valor">Valor a Pagar (R$)</label>
+                        <input type="number" id="fatura-valor" class="glass-input" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="fatura-conta">Debitar da Conta</label>
+                        <select id="fatura-conta" class="glass-select" required></select>
+                    </div>
+                </div>
+                <!-- Tabela dinâmica de lançamentos da fatura -->
+                <div id="fatura-detalhes-container" style="display: none; margin-top: 1.2rem; margin-bottom: 1.2rem;">
+                    <h3 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem;">Lançamentos da Fatura</h3>
+                    <div style="max-height: 150px; overflow-y: auto; border-radius: 8px; border: 1px solid var(--glass-border);">
+                        <table class="glass-table" style="width: 100%; font-size: 0.8rem;">
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Descrição</th>
+                                    <th>Valor</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fatura-transacoes-tbody">
+                                <!-- Injetado dinamicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-pagar-fatura')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Confirmar Pagamento</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 6. Modal: Operação de Meta (Poupar/Resgatar) -->
+    <div id="modal-meta-operacao" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2 id="meta-op-titulo">Adicionar Saldo à Meta</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-meta-operacao')">&times;</button>
+            </div>
+            <form id="form-meta-operacao" onsubmit="app.handleSaveMetaOperacao(event)">
+                <input type="hidden" id="meta-op-id">
+                <input type="hidden" id="meta-op-tipo">
+                
+                <div class="form-group">
+                    <label>Objetivo</label>
+                    <input type="text" id="meta-op-nome" class="glass-input" readonly>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="meta-op-valor">Valor (R$)</label>
+                        <input type="number" id="meta-op-valor" class="glass-input" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-op-conta" id="label-meta-op-conta">Debitar da Conta</label>
+                        <select id="meta-op-conta" class="glass-select" required></select>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-meta-operacao')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btn-meta-op-submit">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 7. Modal: Detalhes do Cartão -->
+    <div id="modal-detalhes-cartao" class="modal-overlay">
+        <div class="modal-content glass" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 id="detalhes-cartao-titulo">Detalhes da Fatura</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-detalhes-cartao')">&times;</button>
+            </div>
+            <div class="detalhes-cartao-body">
+                <div class="detalhes-grid-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 1.5rem;">
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">LIMITE TOTAL</p>
+                        <p id="detalhes-limite-total" style="font-size: 1.1rem; font-weight: 600;"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">LIMITE DISPONÍVEL</p>
+                        <p id="detalhes-limite-disp" style="font-size: 1.1rem; font-weight: 600;"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">DIA DE FECHAMENTO</p>
+                        <p id="detalhes-dia-fechamento" style="font-weight: 500;"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">DIA DE VENCIMENTO</p>
+                        <p id="detalhes-dia-vencimento" style="font-weight: 500;"></p>
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <p class="text-gray" style="font-size: 0.8rem;">CONTA VINCULADA PADRÃO</p>
+                        <p id="detalhes-conta-vinculada" style="font-weight: 500;"></p>
+                    </div>
+                </div>
+                <h3>Lançamentos na Fatura (Mês Selecionado)</h3>
+                <div style="max-height: 250px; overflow-y: auto; margin-top: 1rem; border-radius: 12px; border: 1px solid var(--glass-border);">
+                    <table class="glass-table" style="width: 100%; font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Descrição</th>
+                                <th>Categoria</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detalhes-cartao-transacoes">
+                            <!-- Injetado dinamicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 0.8rem;">
+                    <button class="btn" id="btn-editar-cartao" style="background: var(--primary-color); color: #000; border: none; font-size: 0.85rem; padding: 0.5rem 1rem;">Editar</button>
+                    <button class="btn" id="btn-excluir-cartao" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); font-size: 0.85rem; padding: 0.5rem 1rem;">Excluir</button>
+                </div>
+                <button class="btn btn-secondary" onclick="app.closeModal('modal-detalhes-cartao')">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1.1 Modal: Detalhes da Conta Corrente -->
+    <div id="modal-detalhes-conta" class="modal-overlay">
+        <div class="modal-content glass" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 id="detalhes-conta-titulo">Detalhes da Conta</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-detalhes-conta')">&times;</button>
+            </div>
+            <div class="detalhes-conta-body">
+                <div class="detalhes-grid-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 1.5rem;">
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">SALDO ATUAL</p>
+                        <p id="detalhes-conta-saldo" style="font-size: 1.1rem; font-weight: 600;"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">TIPO DE CONTA</p>
+                        <p id="detalhes-conta-tipo" style="font-size: 1.1rem; font-weight: 600;"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">BANCO</p>
+                        <p id="detalhes-conta-banco" style="font-weight: 500;"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray" style="font-size: 0.8rem;">AGÊNCIA / CONTA</p>
+                        <p id="detalhes-conta-agencia-numero" style="font-weight: 500;"></p>
+                    </div>
+                    <div style="grid-column: span 2;">
+                        <p class="text-gray" style="font-size: 0.8rem;">TITULAR / RESPONSÁVEL</p>
+                        <p id="detalhes-conta-pessoa" style="font-weight: 500;"></p>
+                    </div>
+                </div>
+                <h3>Lançamentos na Conta (Mês Selecionado)</h3>
+                <div style="max-height: 250px; overflow-y: auto; margin-top: 1rem; border-radius: 12px; border: 1px solid var(--glass-border);">
+                    <table class="glass-table" style="width: 100%; font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Descrição</th>
+                                <th>Tipo</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detalhes-conta-transacoes">
+                            <!-- Injetado dinamicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 0.8rem;">
+                    <button class="btn" id="btn-editar-conta" style="background: var(--primary-color); color: #000; border: none; font-size: 0.85rem; padding: 0.5rem 1rem;">Editar</button>
+                    <button class="btn" id="btn-excluir-conta" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); font-size: 0.85rem; padding: 0.5rem 1rem;">Excluir</button>
+                </div>
+                <button class="btn btn-secondary" onclick="app.closeModal('modal-detalhes-conta')">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Modal: Novo Investimento -->
+    <div id="modal-investimento" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2>Novo Investimento</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-investimento')">&times;</button>
+            </div>
+            <form id="form-investimento" onsubmit="app.handleSaveInvestimento(event)">
+                <div class="form-group">
+                    <label for="inv-nome">Nome do Ativo</label>
+                    <input type="text" id="inv-nome" class="glass-input" required placeholder="Ex: CDB Banco Inter 110% CDI">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="inv-valor">Valor Aplicado (R$)</label>
+                        <input type="number" id="inv-valor" class="glass-input" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="inv-data">Data de Aplicação</label>
+                        <input type="date" id="inv-data" class="glass-input" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="inv-tipo">Tipo de Ativo</label>
+                        <select id="inv-tipo" class="glass-select" required onchange="app.onTipoInvestimentoChange()">
+                            <option value="CDB">CDB (Certificado de Depósito Bancário)</option>
+                            <option value="LCI_LCA">LCI / LCA</option>
+                            <option value="TESOURO">Tesouro Selic</option>
+                            <option value="POUPANCA">Poupança</option>
+                            <option value="PREFIXADO">Prefixado (Taxa Fixa)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="inv-taxa" id="label-inv-taxa">Rentabilidade (% do CDI)</label>
+                        <input type="number" id="inv-taxa" class="glass-input" step="0.01" value="100.0">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="inv-pessoa">Titular / Responsável</label>
+                    <select id="inv-pessoa" class="glass-select">
+                        <option value="Compartilhado">Geral / Compartilhado</option>
+                        <option value="Henrico">Henrico</option>
+                        <option value="Thamires">Thamires</option>
+                        <option value="Maria Heloísa">Maria Heloísa</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-investimento')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar Investimento</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 8. Modal: Transferência Entre Contas -->
+    <div id="modal-transferencia" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2>Transferência Entre Contas</h2>
+                <button class="btn-close" onclick="app.closeModal('modal-transferencia')">&times;</button>
+            </div>
+            <form id="form-transferencia" onsubmit="app.handleSaveTransferencia(event)">
+                <div class="form-group">
+                    <label for="transf-origem">Conta de Origem</label>
+                    <select id="transf-origem" class="glass-select" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="transf-destino">Conta de Destino</label>
+                    <select id="transf-destino" class="glass-select" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="transf-valor">Valor (R$)</label>
+                        <input type="number" id="transf-valor" class="glass-input" step="0.01" required placeholder="0,00">
+                    </div>
+                    <div class="form-group">
+                        <label for="transf-data">Data</label>
+                        <input type="date" id="transf-data" class="glass-input" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="transf-descricao">Descrição / Observação</label>
+                    <input type="text" id="transf-descricao" class="glass-input" value="Transferência entre contas" placeholder="Ex: Transferência de saldo">
+                </div>
+                <div class="form-group">
+                    <label for="transf-pessoa">Responsável</label>
+                    <select id="transf-pessoa" class="glass-select">
+                        <option value="Compartilhado">Geral / Compartilhado</option>
+                        <option value="Henrico">Henrico</option>
+                        <option value="Thamires">Thamires</option>
+                        <option value="Maria Heloísa">Maria Heloísa</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-transferencia')">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Transferir</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Custom Alert Modal -->
+    <div id="custom-alert-modal" class="modal-overlay" style="z-index: 10000;">
+        <div class="modal-content glass" style="max-width: 400px; text-align: center; padding: 2rem;">
+            <div style="margin-bottom: 1.2rem; display: flex; justify-content: center;">
+                <div style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; color: var(--text-color);">
+                    <i data-lucide="info" style="width: 24px; height: 24px;"></i>
+                </div>
+            </div>
+            <h3 id="custom-alert-title" style="font-weight: 600; margin-bottom: 0.8rem; font-size: 1.15rem;">Aviso</h3>
+            <p id="custom-alert-message" class="text-gray" style="font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.5;"></p>
+            <button class="btn btn-primary" onclick="app.closeCustomAlert()" style="width: 100%;">Ok</button>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="custom-confirm-modal" class="modal-overlay" style="z-index: 10000;">
+        <div class="modal-content glass" style="max-width: 420px; text-align: center; padding: 2rem;">
+            <div style="margin-bottom: 1.2rem; display: flex; justify-content: center;">
+                <div style="background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; color: #ff4444;">
+                    <i data-lucide="help-circle" style="width: 24px; height: 24px;"></i>
+                </div>
+            </div>
+            <h3 id="custom-confirm-title" style="font-weight: 600; margin-bottom: 0.8rem; font-size: 1.15rem;">Confirmar Ação</h3>
+            <p id="custom-confirm-message" class="text-gray" style="font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.5;"></p>
+            
+            <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
+                    <button id="custom-confirm-btn-no" class="btn btn-secondary" onclick="app.closeCustomConfirm('cancel')">Cancelar</button>
+                    <button id="custom-confirm-btn-yes" class="btn btn-primary" onclick="app.closeCustomConfirm('confirm')" style="background: #ff4444; border-color: #ff4444; color: white;">Confirmar</button>
+                </div>
+                <button id="custom-confirm-btn-third" class="btn btn-secondary" onclick="app.closeCustomConfirm('third')" style="display: none; background: rgba(255,255,255,0.05); color: var(--text-color); border: 1px solid var(--glass-border);">Apenas esta parcela</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script de Inicialização da Lógica Frontend -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
