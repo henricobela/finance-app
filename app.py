@@ -424,6 +424,10 @@ def auth_register():
     if len(cpf) != 11:
         return jsonify({'error': 'CPF deve conter exatamente 11 dígitos'}), 400
         
+    cpfs_permitidos = ['43642821898', '16251321822', '18719476850']
+    if cpf not in cpfs_permitidos:
+        return jsonify({'error': 'CPF não autorizado para cadastro no sistema'}), 403
+        
     if Usuario.query.get(cpf):
         return jsonify({'error': 'Este CPF já está cadastrado'}), 400
         

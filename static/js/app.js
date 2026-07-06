@@ -66,7 +66,7 @@ class FinanceApp {
             if (data.logged_in) {
                 this.state.user = data.user;
                 document.getElementById('login-container').style.display = 'none';
-                document.querySelector('.app-container').style.display = 'flex';
+                document.querySelector('.app-container').style.display = 'grid';
                 
                 const userSpan = document.getElementById('logged-user-name');
                 if (userSpan) {
@@ -134,7 +134,7 @@ class FinanceApp {
             
             // Oculta container de login e exibe aplicação
             document.getElementById('login-container').style.display = 'none';
-            document.querySelector('.app-container').style.display = 'flex';
+            document.querySelector('.app-container').style.display = 'grid';
             
             const userSpan = document.getElementById('logged-user-name');
             if (userSpan) {
@@ -174,7 +174,7 @@ class FinanceApp {
             
             // Oculta container de login e exibe aplicação
             document.getElementById('login-container').style.display = 'none';
-            document.querySelector('.app-container').style.display = 'flex';
+            document.querySelector('.app-container').style.display = 'grid';
             
             const userSpan = document.getElementById('logged-user-name');
             if (userSpan) {
@@ -197,11 +197,9 @@ class FinanceApp {
             if (!res.ok) throw new Error("Erro ao deslogar");
 
             this.state.user = null;
-            this.showAlert("Sessão encerrada.");
             
-            // Força recarregamento da página para limpar o estado em memória e exibir a tela de login
-            window.location.hash = '#/';
-            window.location.reload();
+            // Redireciona de forma limpa para a raiz do site, limpando o hash e forçando reload limpo
+            window.location.href = window.location.origin + window.location.pathname;
         } catch (err) {
             this.showAlert(err.message);
         }
