@@ -6,7 +6,7 @@ import json
 import shutil
 from datetime import datetime, date
 from flask import Flask, jsonify, request, render_template, send_from_directory, session
-from models import db, ContaBancaria, Categoria, CartaoCredito, Transacao, Orcamento, MetaFinanceira, TaxaSGS, Investimento, Configuracao
+from models import db, Usuario, ContaBancaria, Categoria, CartaoCredito, Transacao, Orcamento, MetaFinanceira, TaxaSGS, Investimento, Configuracao
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'antigravity_lucena_secret_key_9988')
