@@ -11,14 +11,23 @@ from models import db, Usuario, ContaBancaria, Categoria, CartaoCredito, Transac
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'antigravity_lucena_secret_key_9988')
 
-# Configura o SQLite (suporta caminho customizado para o Render)
-db_path_env = os.environ.get('DATABASE_PATH')
-if db_path_env:
-    db_path = db_path_env
+# Configuração do Banco de Dados (PostgreSQL/Supabase ou SQLite como Fallback)
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    # Corrige o prefixo postgres:// que o Render pode injetar, pois o SQLAlchemy exige postgresql://
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    db_path = None
 else:
-    db_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'financas.db')
+    # Se não houver DATABASE_URL, verifica DATABASE_PATH (SQLite) ou usa o local padrão
+    db_path_env = os.environ.get('DATABASE_PATH')
+    if db_path_env:
+        db_path = db_path_env
+    else:
+        db_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'financas.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
@@ -486,10 +495,36 @@ def save_configuracoes():
 def criar_backup():
     try:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_filename = f"financas_backup_manual_{timestamp}.db"
-        backup_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), backup_filename)
-        shutil.copy2(db_path, backup_path)
-        return jsonify({'success': True, 'filename': backup_filename})
+        
+        # Se for SQLite, faz a cópia física do arquivo .db
+        if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite:'):
+            backup_filename = f"financas_backup_manual_{timestamp}.db"
+            backup_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), backup_filename)
+            shutil.copy2(db_path, backup_path)
+            return jsonify({'success': True, 'filename': backup_filename})
+        else:
+            # Para PostgreSQL/Supabase, gera um dump estruturado em arquivo JSON
+            backup_filename = f"financas_backup_manual_{timestamp}.json"
+            backup_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), backup_filename)
+            
+            backup_data = {
+                'usuarios': [u.to_dict() for u in Usuario.query.all()],
+                'usuarios_senhas': {u.cpf: u.senha_hash for u in Usuario.query.all()},
+                'contas_bancarias': [c.to_dict() for c in ContaBancaria.query.all()],
+                'categorias': [cat.to_dict() for cat in Categoria.query.all()],
+                'cartoes_credito': [cc.to_dict() for cc in CartaoCredito.query.all()],
+                'transacoes': [t.to_dict() for t in Transacao.query.all()],
+                'orcamentos': [o.to_dict() for o in Orcamento.query.all()],
+                'metas_financeiras': [m.to_dict() for m in MetaFinanceira.query.all()],
+                'taxas_sgs': [tx.to_dict() for tx in TaxaSGS.query.all()],
+                'investimentos': [i.to_dict() for i in Investimento.query.all()],
+                'configuracoes': [cfg.to_dict() for cfg in Configuracao.query.all()]
+            }
+            
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                json.dump(backup_data, f, ensure_ascii=False, indent=4)
+                
+            return jsonify({'success': True, 'filename': backup_filename})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
