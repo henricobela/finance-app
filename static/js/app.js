@@ -257,6 +257,14 @@ class FinanceApp {
 
         inputMonth.addEventListener('change', (e) => {
             this.state.currentMonth = e.target.value;
+            
+            // Limpa dados temporais em cache para exibir spinner enquanto carrega o novo mês
+            this.state.summary = null;
+            this.state.transactions = null;
+            this.state.budgets = null;
+            this.state.investmentData = null;
+            this.state.allFaturas = null;
+            
             this.refreshCurrentView();
         });
     }
@@ -379,17 +387,31 @@ class FinanceApp {
         this.refreshCurrentView();
     }
 
+    showLoadingState(viewPanel) {
+        viewPanel.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 400px; width: 100%;">
+                <div class="glass glass-card" style="padding: 2rem; display: flex; align-items: center; gap: 1rem;">
+                    <div class="spinner" style="width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--solid-white); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <span style="font-weight: 500;">Carregando dados...</span>
+                </div>
+            </div>
+            <style>
+                @keyframes spin { 
+                    0% { transform: rotate(0deg); } 
+                    100% { transform: rotate(360deg); } 
+                }
+            </style>
+        `;
+    }
+
     async refreshCurrentView() {
         const viewPanel = document.getElementById('app-view');
-        
-        // 1. Carrega dados correspondentes antes de renderizar
-        await this.loadViewData();
 
-        // 2. Remove animação para reiniciar
+        // 1. Remove animação para reiniciar
         viewPanel.classList.remove('transition-fade');
         void viewPanel.offsetWidth; // Trigger reflow
 
-        // 3. Atualiza títulos com base na view
+        // 2. Atualiza títulos com base na view e faz render parcial imediato com dados em cache
         const titleEl = document.getElementById('view-title');
         const subtitleEl = document.getElementById('view-subtitle');
 
@@ -439,11 +461,30 @@ class FinanceApp {
                 this.renderDashboard();
         }
 
-        // 4. Adiciona animação de fade após renderizar o HTML atualizado
+        // 3. Adiciona animação de fade após renderizar o HTML atualizado em cache
         viewPanel.classList.add('transition-fade');
-
-        // Recria os ícones Lucide injetados dinamicamente
         lucide.createIcons();
+
+        // 4. Carrega os dados mais recentes do servidor em background
+        try {
+            await this.loadViewData();
+            
+            // 5. Re-renderiza silenciosamente com os dados atualizados para atualizar valores na tela
+            switch (this.state.activeView) {
+                case 'dashboard': this.renderDashboard(); break;
+                case 'transacoes': this.renderTransacoes(); break;
+                case 'contas-cartoes': this.renderContasCartoes(); break;
+                case 'faturas': this.renderFaturas(); break;
+                case 'orcamentos': this.renderOrcamentos(); break;
+                case 'metas': this.renderMetas(); break;
+                case 'configuracoes': this.renderConfiguracoes(); break;
+                case 'investimentos': this.renderInvestimentos(); break;
+                default: this.renderDashboard(); break;
+            }
+            lucide.createIcons();
+        } catch (err) {
+            console.error("Erro na atualização em background:", err);
+        }
     }
 
     // Carrega dados da API específicos de cada tela
@@ -503,7 +544,10 @@ class FinanceApp {
     renderDashboard() {
         const viewPanel = document.getElementById('app-view');
         const s = this.state.summary;
-        if (!s) return;
+        if (!s) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
 
         // Formata moeda
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -828,6 +872,11 @@ class FinanceApp {
     renderTransacoes() {
         const viewPanel = document.getElementById('app-view');
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+
+        if (!this.state.transactions) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
 
         // Filtragem cliente-side para resposta instantânea e contabilidade dinâmica
         let filtered = [...this.state.transactions];
@@ -1159,6 +1208,10 @@ class FinanceApp {
     renderFaturas() {
         const viewPanel = document.getElementById('app-view');
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+        if (!this.state.allFaturas) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
         const payments = this.state.billPayments || [];
         
         // Define cartão e mês selecionados padrão
@@ -1497,6 +1550,11 @@ class FinanceApp {
         const viewPanel = document.getElementById('app-view');
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
+        if (!this.state.budgets || !this.state.summary) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
+
         viewPanel.innerHTML = `
             <div class="panel-header-row">
                 <h2>Metas de Limite de Gastos (Orçamentos)</h2>
@@ -1545,6 +1603,11 @@ class FinanceApp {
     renderMetas() {
         const viewPanel = document.getElementById('app-view');
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+
+        if (!this.state.metas) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
 
         viewPanel.innerHTML = `
             <div class="panel-header-row">
@@ -2656,7 +2719,10 @@ class FinanceApp {
     renderInvestimentos() {
         const viewPanel = document.getElementById('app-view');
         const d = this.state.investmentData;
-        if (!d) return;
+        if (!d) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
 
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
@@ -2942,6 +3008,10 @@ class FinanceApp {
 
     renderConfiguracoes() {
         const viewPanel = document.getElementById('app-view');
+        if (!this.state.categories) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
         const activeTab = this.state.activeSettingsTab || 'categorias';
         
         let tabContent = '';

@@ -52,8 +52,7 @@ with app_sqlite.app_context():
         print(f"Erro ao ler banco SQLite: {e}")
         sys.exit(1)
 
-print("\n--- CONECTANDO AO SUPABASE (POSTGRESQL) ---")
-postgres_uri = 'postgresql://postgres.qkjnklyndghuejmgxzeb:6uourxQEzCQXyjdM@aws-1-us-west-2.pooler.supabase.com:6543/postgres'
+postgres_uri = 'postgresql://postgres.gryocyufrzprjejekiox:Fmjs8544%40%23%21@aws-1-sa-east-1.pooler.supabase.com:6543/postgres'
 
 app_pg = Flask(__name__)
 app_pg.config['SQLALCHEMY_DATABASE_URI'] = postgres_uri
