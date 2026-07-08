@@ -1183,47 +1183,56 @@ def get_resumo():
     data_ini = date(ano, mes_int, 1)
     data_fim = date(ano, mes_int, ultimo_dia)
     
-    # 1. Saldo Geral Atual (somatório de todas as contas reais)
+    # 1. Carregar todos os dados essenciais para processamento em memória (Evita N+1 queries sobre rede)
     contas = ContaBancaria.query.filter_by(usuario_cpf=session['user_cpf']).all()
+    cartoes = CartaoCredito.query.filter_by(usuario_cpf=session['user_cpf']).all()
+    categorias = Categoria.query.filter_by(usuario_cpf=session['user_cpf']).all()
+    orcamentos = Orcamento.query.filter_by(mes=mes, usuario_cpf=session['user_cpf']).all()
+    
+    # Buscar transações do mês selecionado
+    transacoes_mes = Transacao.query.filter(
+        Transacao.usuario_cpf == session['user_cpf'],
+        Transacao.data >= data_ini,
+        Transacao.data <= data_fim
+    ).all()
+    
+    # Buscar todas as transações recorrentes ativas
+    recorrentes = Transacao.query.filter(
+        Transacao.recorrente == True,
+        Transacao.usuario_cpf == session['user_cpf']
+    ).all()
+    
+    # Calcular data limite para a projeção de 6 meses futuros
+    fut_limite_ano = ano + (mes_int + 6 - 1) // 12
+    fut_limite_mes = (mes_int + 6 - 1) % 12 + 1
+    ultimo_dia_limite = calendar.monthrange(fut_limite_ano, fut_limite_mes)[1]
+    data_limite_projecao = date(fut_limite_ano, fut_limite_mes, ultimo_dia_limite)
+    
+    # Buscar todas as transações futuras para projeção em lote único
+    transacoes_futuro = Transacao.query.filter(
+        Transacao.usuario_cpf == session['user_cpf'],
+        Transacao.data > data_fim,
+        Transacao.data <= data_limite_projecao
+    ).all()
+
+    # --- PROCESSAMENTO EM MEMÓRIA ---
+    
+    # 1. Saldo Geral Atual (somatório de todas as contas reais)
     saldo_geral = sum(c.saldo_atual for c in contas)
     
     # 2. Receitas do Mês selecionado
-    receitas_mes = db.session.query(db.func.sum(Transacao.valor)).filter(
-        Transacao.usuario_cpf == session['user_cpf'],
-        Transacao.tipo == 'RECEITA',
-        Transacao.data >= data_ini,
-        Transacao.data <= data_fim
-    ).scalar() or 0.0
+    receitas_mes = sum(t.valor for t in transacoes_mes if t.tipo == 'RECEITA')
     
     # 3. Despesas do Mês selecionado (contas normais + compras de cartão)
-    # Exclui pagamentos de fatura (fatura_cartao_id.is_(None)) para evitar dupla contagem com as compras individuais
-    despesas_mes = db.session.query(db.func.sum(Transacao.valor)).filter(
-        Transacao.usuario_cpf == session['user_cpf'],
-        Transacao.tipo == 'DESPESA',
-        Transacao.fatura_cartao_id.is_(None),
-        Transacao.data >= data_ini,
-        Transacao.data <= data_fim
-    ).scalar() or 0.0
+    # Exclui pagamentos de fatura (fatura_cartao_id is None) para evitar dupla contagem com as compras individuais
+    despesas_mes = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.fatura_cartao_id is None)
     
     # 4. Faturas de Cartão no Mês
     # Para cada cartão, somamos as despesas atreladas a ele com data no mês selecionado
     cartoes_info = []
-    cartoes = CartaoCredito.query.filter_by(usuario_cpf=session['user_cpf']).all()
     for c in cartoes:
-        fatura_valor = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.cartao_credito_id == c.id,
-            Transacao.data >= data_ini,
-            Transacao.data <= data_fim
-        ).scalar() or 0.0
-        
-        fatura_pago = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.fatura_cartao_id == c.id,
-            Transacao.fatura_mes == mes
-        ).scalar() or 0.0
+        fatura_valor = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.cartao_credito_id == c.id)
+        fatura_pago = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.fatura_cartao_id == c.id and t.fatura_mes == mes)
         
         cartoes_info.append({
             'id': c.id,
@@ -1237,29 +1246,20 @@ def get_resumo():
         })
         
     # 5. Gastos por Categoria no Mês (para Gráfico de Rosca)
-    categorias_gastos = db.session.query(
-        Categoria.nome, db.func.sum(Transacao.valor)
-    ).join(Transacao, Transacao.categoria_id == Categoria.id).filter(
-        Categoria.usuario_cpf == session['user_cpf'],
-        Transacao.usuario_cpf == session['user_cpf'],
-        Transacao.tipo == 'DESPESA',
-        Transacao.data >= data_ini,
-        Transacao.data <= data_fim
-    ).group_by(Categoria.nome).all()
-    
-    distribuicao_categorias = [{'categoria': nome, 'valor': valor} for nome, valor in categorias_gastos]
+    cat_map = {cat.id: cat for cat in categorias}
+    categorias_gastos_dict = {}
+    for t in transacoes_mes:
+        if t.tipo == 'DESPESA' and t.categoria_id:
+            cat = cat_map.get(t.categoria_id)
+            nome_cat = cat.nome if cat else 'Sem Categoria'
+            categorias_gastos_dict[nome_cat] = categorias_gastos_dict.get(nome_cat, 0.0) + t.valor
+            
+    distribuicao_categorias = [{'categoria': k, 'valor': round(v, 2)} for k, v in categorias_gastos_dict.items()]
     
     # 6. Progresso do Orçamento no Mês
-    orcamentos = Orcamento.query.filter_by(mes=mes, usuario_cpf=session['user_cpf']).all()
     orcamentos_progresso = []
     for o in orcamentos:
-        gasto_real = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.categoria_id == o.categoria_id,
-            Transacao.data >= data_ini,
-            Transacao.data <= data_fim
-        ).scalar() or 0.0
+        gasto_real = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.categoria_id == o.categoria_id)
         
         orcamentos_progresso.append({
             'id': o.id,
@@ -1274,22 +1274,8 @@ def get_resumo():
     pessoas = ['Henrico', 'Thamires', 'Maria Heloísa', 'Compartilhado']
     fluxo_pessoas = []
     for p in pessoas:
-        ganhou = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'RECEITA',
-            Transacao.pessoa == p,
-            Transacao.data >= data_ini,
-            Transacao.data <= data_fim
-        ).scalar() or 0.0
-        
-        gastou = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.fatura_cartao_id.is_(None),
-            Transacao.pessoa == p,
-            Transacao.data >= data_ini,
-            Transacao.data <= data_fim
-        ).scalar() or 0.0
+        ganhou = sum(t.valor for t in transacoes_mes if t.tipo == 'RECEITA' and t.pessoa == p)
+        gastou = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.fatura_cartao_id is None and t.pessoa == p)
         
         fluxo_pessoas.append({
             'pessoa': p,
@@ -1300,38 +1286,19 @@ def get_resumo():
     # 8. Calcular acumulado do que falta pagar no mês selecionado
     falta_pagar_faturas = 0.0
     for c in cartoes:
-        compra_total = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.cartao_credito_id == c.id,
-            Transacao.data >= data_ini,
-            Transacao.data <= data_fim
-        ).scalar() or 0.0
-        
-        pagamento_total = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.fatura_cartao_id == c.id,
-            Transacao.fatura_mes == mes
-        ).scalar() or 0.0
-        
+        compra_total = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.cartao_credito_id == c.id)
+        pagamento_total = sum(t.valor for t in transacoes_mes if t.tipo == 'DESPESA' and t.fatura_cartao_id == c.id and t.fatura_mes == mes)
         falta_pagar_faturas += max(0.0, compra_total - pagamento_total)
         
-    falta_pagar_contas = db.session.query(db.func.sum(Transacao.valor)).filter(
-        Transacao.usuario_cpf == session['user_cpf'],
-        Transacao.tipo == 'DESPESA',
-        Transacao.cartao_credito_id.is_(None),
-        Transacao.fatura_cartao_id.is_(None),
-        Transacao.pago_ou_confirmado == False,
-        Transacao.data >= data_ini,
-        Transacao.data <= data_fim
-    ).scalar() or 0.0
+    falta_pagar_contas = sum(
+        t.valor for t in transacoes_mes 
+        if t.tipo == 'DESPESA' and t.cartao_credito_id is None and t.fatura_cartao_id is None and not t.pago_ou_confirmado
+    )
     
     total_falta_pagar = falta_pagar_faturas + falta_pagar_contas
-
+ 
     # 9. Projeção para os próximos 6 meses
     projecoes = []
-    recorrentes = Transacao.query.filter(Transacao.recorrente == True, Transacao.usuario_cpf == session['user_cpf']).all()
     meses_nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
     
     for i in range(0, 7):
@@ -1343,33 +1310,29 @@ def get_resumo():
         fut_data_fim = date(fut_ano, fut_mes, fut_ultimo_dia)
         fut_mes_str = f"{fut_ano}-{str(fut_mes).zfill(2)}"
         
-        # A. Transações explícitas agendadas para este mês futuro
-        fut_receitas = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'RECEITA',
-            Transacao.data >= fut_data_ini,
-            Transacao.data <= fut_data_fim
-        ).scalar() or 0.0
+        if i == 0:
+            # Para o mês corrente, usamos os acumulados já calculados em memória
+            fut_receitas = receitas_mes
+            fut_despesas = despesas_mes
+            pool_busca = transacoes_mes
+        else:
+            # Para meses futuros, filtramos do nosso lote único 'transacoes_futuro'
+            fut_receitas = sum(t.valor for t in transacoes_futuro if t.tipo == 'RECEITA' and t.data >= fut_data_ini and t.data <= fut_data_fim)
+            fut_despesas = sum(t.valor for t in transacoes_futuro if t.tipo == 'DESPESA' and t.fatura_cartao_id is None and t.data >= fut_data_ini and t.data <= fut_data_fim)
+            pool_busca = transacoes_futuro
         
-        fut_despesas = db.session.query(db.func.sum(Transacao.valor)).filter(
-            Transacao.usuario_cpf == session['user_cpf'],
-            Transacao.tipo == 'DESPESA',
-            Transacao.fatura_cartao_id.is_(None),
-            Transacao.data >= fut_data_ini,
-            Transacao.data <= fut_data_fim
-        ).scalar() or 0.0
-        
-        # B. Lançamentos recorrentes
+        # B. Verificar lançamentos recorrentes
         for rec in recorrentes:
             if rec.data <= fut_data_fim:
-                ja_existe = db.session.query(Transacao.id).filter(
-                    Transacao.usuario_cpf == session['user_cpf'],
-                    Transacao.tipo == rec.tipo,
-                    Transacao.descricao == rec.descricao,
-                    Transacao.valor == rec.valor,
-                    Transacao.data >= fut_data_ini,
-                    Transacao.data <= fut_data_fim
-                ).first() is not None
+                # Busca rápida linear em memória ao invés de query SQL no banco
+                ja_existe = any(
+                    t.tipo == rec.tipo and
+                    t.descricao == rec.descricao and
+                    t.valor == rec.valor and
+                    t.data >= fut_data_ini and
+                    t.data <= fut_data_fim
+                    for t in pool_busca
+                )
                 
                 if not ja_existe:
                     if rec.tipo == 'RECEITA':
@@ -1401,11 +1364,18 @@ def get_resumo():
 
 # ==================== API: INVESTIMENTOS & RENTABILIDADE ====================
 
-def obter_taxa_sgs_mes(codigo_serie, ano, mes):
+def obter_taxa_sgs_mes(codigo_serie, ano, mes, cache=None):
+    if cache is not None:
+        key = (codigo_serie, ano, mes)
+        if key in cache:
+            return cache[key]
+            
     # Procura no cache do banco de dados primeiro
     inicio_mes = date(ano, mes, 1)
     taxa_local = TaxaSGS.query.filter_by(serie=codigo_serie, data=inicio_mes).first()
     if taxa_local:
+        if cache is not None:
+            cache[(codigo_serie, ano, mes)] = taxa_local.valor
         return taxa_local.valor
 
     # Caso não esteja no cache, busca do Banco Central do Brasil
@@ -1427,6 +1397,8 @@ def obter_taxa_sgs_mes(codigo_serie, ano, mes):
                     nova_taxa = TaxaSGS(serie=codigo_serie, data=inicio_mes, valor=valor_taxa)
                     db.session.add(nova_taxa)
                     db.session.commit()
+                    if cache is not None:
+                        cache[(codigo_serie, ano, mes)] = valor_taxa
                     return valor_taxa
     except Exception as e:
         print(f"Erro ao buscar taxa {codigo_serie} da API do Banco Central: {e}")
@@ -1440,7 +1412,7 @@ def obter_taxa_sgs_mes(codigo_serie, ano, mes):
         return 10.5
     return 0.0
 
-def calcular_rendimento_investimento(inv, ano_limite, mes_limite):
+def calcular_rendimento_investimento(inv, ano_limite, mes_limite, cache=None):
     data_app = inv.data_aplicacao
     ano_app = data_app.year
     mes_app = data_app.month
@@ -1463,13 +1435,13 @@ def calcular_rendimento_investimento(inv, ano_limite, mes_limite):
         taxa_mes_percent = 0.0
         
         if inv.tipo == 'CDB' or inv.tipo == 'LCI_LCA':
-            taxa_cdi = obter_taxa_sgs_mes(4391, ano_atual, mes_atual)
+            taxa_cdi = obter_taxa_sgs_mes(4391, ano_atual, mes_atual, cache)
             taxa_mes_percent = taxa_cdi * (inv.taxa / 100.0)
         elif inv.tipo == 'TESOURO':
-            taxa_selic = obter_taxa_sgs_mes(4390, ano_atual, mes_atual)
+            taxa_selic = obter_taxa_sgs_mes(4390, ano_atual, mes_atual, cache)
             taxa_mes_percent = taxa_selic
         elif inv.tipo == 'POUPANCA':
-            selic_meta = obter_taxa_sgs_mes(432, ano_atual, mes_atual)
+            selic_meta = obter_taxa_sgs_mes(432, ano_atual, mes_atual, cache)
             if selic_meta > 8.5:
                 taxa_mes_percent = 0.5
             else:
@@ -1526,13 +1498,17 @@ def get_investimentos():
     alocacao = {}
     evolucao_temp = {}
     
-    cdi_mes = obter_taxa_sgs_mes(4391, ano_limite, mes_limite)
-    selic_mes = obter_taxa_sgs_mes(4390, ano_limite, mes_limite)
-    selic_meta_mes = obter_taxa_sgs_mes(432, ano_limite, mes_limite)
-    ipca_mes = obter_taxa_sgs_mes(433, ano_limite, mes_limite)
+    # Carregar cache de taxas sgs para evitar N+1 queries no loop de simulação
+    todas_taxas = TaxaSGS.query.all()
+    cache_taxas = {(t.serie, t.data.year, t.data.month): t.valor for t in todas_taxas}
+    
+    cdi_mes = obter_taxa_sgs_mes(4391, ano_limite, mes_limite, cache_taxas)
+    selic_mes = obter_taxa_sgs_mes(4390, ano_limite, mes_limite, cache_taxas)
+    selic_meta_mes = obter_taxa_sgs_mes(432, ano_limite, mes_limite, cache_taxas)
+    ipca_mes = obter_taxa_sgs_mes(433, ano_limite, mes_limite, cache_taxas)
     
     for inv in investimentos:
-        calc = calcular_rendimento_investimento(inv, ano_limite, mes_limite)
+        calc = calcular_rendimento_investimento(inv, ano_limite, mes_limite, cache_taxas)
         
         total_aplicado += inv.valor_aplicado
         total_atual += calc['valor_atual']

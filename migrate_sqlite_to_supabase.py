@@ -53,8 +53,7 @@ with app_sqlite.app_context():
         sys.exit(1)
 
 print("\n--- CONECTANDO AO SUPABASE (POSTGRESQL) ---")
-# Supabase Postgres Connection String
-postgres_uri = 'postgresql://postgres:6uourxQEzCQXyjdM@db.qkjnklyndghuejmgxzeb.supabase.co:5432/postgres'
+postgres_uri = 'postgresql://postgres.qkjnklyndghuejmgxzeb:6uourxQEzCQXyjdM@aws-1-us-west-2.pooler.supabase.com:6543/postgres'
 
 app_pg = Flask(__name__)
 app_pg.config['SQLALCHEMY_DATABASE_URI'] = postgres_uri
