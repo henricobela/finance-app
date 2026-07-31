@@ -1500,6 +1500,15 @@ class FinanceApp {
             }
         });
 
+        // 4. MÉTRIBAS GLOBAIS ANTERIORES PRESERVADAS
+        const totalContasPendente = despesasSemCartao.filter(t => !t.pago_ou_confirmado).reduce((acc, t) => acc + t.valor, 0);
+        const totalFaltaPagar = totalFaturasPendente + totalContasPendente;
+
+        const totalContasPagas = despesasSemCartao.filter(t => t.pago_ou_confirmado).reduce((acc, t) => acc + t.valor, 0);
+        const totalJaPago = totalFaturasPagas + totalContasPagas;
+
+        const totalCompromisso = totalFaturasCartao + despesasSemCartao.reduce((acc, t) => acc + t.valor, 0);
+
         function max0(v) { return Math.max(0, v); }
 
         // Filtro selecionado para as contas (Apenas Fixas [padrão] | Pendentes | Todas | Pagas)
@@ -1527,8 +1536,8 @@ class FinanceApp {
                 </button>
             </div>
 
-            <!-- OS 3 BIGNUMBERS PRINCIPAIS DE PAGAMENTOS -->
-            <div class="summary-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem;">
+            <!-- LINHA 1: OS 3 BIGNUMBERS PRINCIPAIS -->
+            <div class="summary-grid" style="margin-bottom: 1.2rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem;">
                 
                 <!-- 1º BigNumber: Total Cartões de Crédito -->
                 <div class="glass glass-card summary-card" style="border-left: 4px solid #818cf8; padding: 1.4rem;">
@@ -1584,6 +1593,49 @@ class FinanceApp {
                     </div>
                 </div>
 
+            </div>
+
+            <!-- LINHA 2: MÉTRICAS GLOBAIS DE STATUS -->
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="glass glass-card summary-card" style="border-color: rgba(239, 68, 68, 0.3);">
+                    <div class="summary-card-header">
+                        <span>Ainda Falta Pagar</span>
+                        <i data-lucide="alert-circle" style="color: #ef4444;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #ef4444;">${fmt(totalFaltaPagar)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card" style="border-color: rgba(16, 185, 129, 0.3);">
+                    <div class="summary-card-header">
+                        <span>Já Pago / Conciliado</span>
+                        <i data-lucide="check-circle-2" style="color: #10b981;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #10b981;">${fmt(totalJaPago)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card">
+                    <div class="summary-card-header">
+                        <span>Compromisso Total do Mês</span>
+                        <i data-lucide="calculator"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value">${fmt(totalCompromisso)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card">
+                    <div class="summary-card-header">
+                        <span>Total de Itens</span>
+                        <i data-lucide="list-checks"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: var(--solid-white);">${faturasMes.length + despesasSemCartao.length} obrigações</div>
+                    </div>
+                </div>
             </div>
 
             <!-- 1. CATÁLOGO DE FATURAS DE CARTÃO DE CRÉDITO DO MÊS -->
