@@ -436,6 +436,11 @@ class FinanceApp {
                 subtitleEl.textContent = 'Acompanhe as faturas dos seus cartões de crédito e histórico de pagamentos.';
                 this.renderFaturas();
                 break;
+            case 'pagamentos':
+                titleEl.textContent = 'Pagamentos do Mês';
+                subtitleEl.textContent = 'Gerencie faturas de cartão e despesas fixas a pagar no mês.';
+                this.renderPagamentos();
+                break;
             case 'orcamentos':
                 titleEl.textContent = 'Orçamentos';
                 subtitleEl.textContent = 'Planeje metas de gastos mensais por categorias.';
@@ -475,6 +480,7 @@ class FinanceApp {
                 case 'transacoes': this.renderTransacoes(); break;
                 case 'contas-cartoes': this.renderContasCartoes(); break;
                 case 'faturas': this.renderFaturas(); break;
+                case 'pagamentos': this.renderPagamentos(); break;
                 case 'orcamentos': this.renderOrcamentos(); break;
                 case 'metas': this.renderMetas(); break;
                 case 'configuracoes': this.renderConfiguracoes(); break;
@@ -533,6 +539,15 @@ class FinanceApp {
                 ]);
                 this.state.billPayments = await payRes.json();
                 this.state.allFaturas = await fatRes.json();
+            } else if (this.state.activeView === 'pagamentos') {
+                const [transRes, resumoRes, faturasRes] = await Promise.all([
+                    fetch(`/api/transacoes?mes=${this.state.currentMonth}`),
+                    fetch(`/api/resumo?mes=${this.state.currentMonth}`),
+                    fetch('/api/faturas')
+                ]);
+                this.state.transactions = await transRes.json();
+                this.state.summary = await resumoRes.json();
+                this.state.allFaturas = await faturasRes.json();
             }
         } catch (err) {
             console.error("Erro ao carregar dados para a tela:", err);
@@ -1416,6 +1431,257 @@ class FinanceApp {
         
         lucide.createIcons();
         this.loadAndRenderFaturaDetails();
+    }
+
+    setPagamentosFilter(type) {
+        this.state.pagamentosFilter = type;
+        this.renderPagamentos();
+        lucide.createIcons();
+    }
+
+    renderPagamentos() {
+        const viewPanel = document.getElementById('app-view');
+        if (!this.state.transactions || !this.state.summary || !this.state.allFaturas) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
+
+        const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+        const s = this.state.summary;
+        const currentMonth = this.state.currentMonth;
+
+        // 1. Filtrar despesas normais (sem cartão de crédito atrelado à fatura direta)
+        const despesasNormais = this.state.transactions.filter(t => t.tipo === 'DESPESA' && !t.fatura_cartao_id);
+
+        // 2. Faturas de cartão para o mês selecionado
+        const faturasMes = (s.faturas_cartoes || []).filter(card => card.fatura_mes > 0 || card.fatura_pendente > 0);
+
+        // 3. Métricas
+        const totalFaturasPendente = faturasMes.reduce((acc, c) => acc + (c.fatura_pendente || 0), 0);
+        const totalContasPendente = despesasNormais.filter(t => !t.pago_ou_confirmado && !t.cartao_credito_id).reduce((acc, t) => acc + t.valor, 0);
+        const totalFaltaPagar = totalFaturasPendente + totalContasPendente;
+
+        const totalContasPagas = despesasNormais.filter(t => t.pago_ou_confirmado && !t.cartao_credito_id).reduce((acc, t) => acc + t.valor, 0);
+        const totalFaturasPagas = faturasMes.reduce((acc, c) => acc + (c.fatura_mes - c.fatura_pendente), 0);
+        const totalJaPago = totalContasPagas + totalFaturasPagas;
+
+        const totalCompromisso = faturasMes.reduce((acc, c) => acc + c.fatura_mes, 0) + despesasNormais.reduce((acc, t) => acc + t.valor, 0);
+
+        // Filtro selecionado para as contas (Todas | Pendentes | Fixas | Pagas)
+        const filterType = this.state.pagamentosFilter || 'todas';
+
+        let contasFiltradas = despesasNormais;
+        if (filterType === 'pendentes') {
+            contasFiltradas = despesasNormais.filter(t => !t.pago_ou_confirmado);
+        } else if (filterType === 'fixas') {
+            contasFiltradas = despesasNormais.filter(t => t.recorrente);
+        } else if (filterType === 'pagas') {
+            contasFiltradas = despesasNormais.filter(t => t.pago_ou_confirmado);
+        }
+
+        viewPanel.innerHTML = `
+            <!-- Header com Ação Rápida -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h2 style="font-weight: 700; font-size: 1.25rem;">Painel de Pagamentos (${currentMonth})</h2>
+                    <p class="text-gray" style="font-size: 0.85rem; margin-top: 0.2rem;">Gerencie todas as suas obrigações financeiras, despesas fixas e faturas a vencer.</p>
+                </div>
+                <button class="btn btn-primary" onclick="app.openModalTransacao('DESPESA')" style="padding: 0.6rem 1.2rem; border-radius: 10px; font-weight: 600;">
+                    <i data-lucide="plus-circle" style="width: 18px; height: 18px; vertical-align: middle; margin-right: 0.4rem;"></i>
+                    + Nova Conta / Despesa Fixa
+                </button>
+            </div>
+
+            <!-- Resumo das Métricas de Pagamento -->
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="glass glass-card summary-card" style="border-color: rgba(239, 68, 68, 0.3);">
+                    <div class="summary-card-header">
+                        <span>Ainda Falta Pagar</span>
+                        <i data-lucide="alert-circle" style="color: #ef4444;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #ef4444;">${fmt(totalFaltaPagar)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card" style="border-color: rgba(16, 185, 129, 0.3);">
+                    <div class="summary-card-header">
+                        <span>Já Pago / Conciliado</span>
+                        <i data-lucide="check-circle-2" style="color: #10b981;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #10b981;">${fmt(totalJaPago)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card">
+                    <div class="summary-card-header">
+                        <span>Compromisso Total do Mês</span>
+                        <i data-lucide="calculator"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value">${fmt(totalCompromisso)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card">
+                    <div class="summary-card-header">
+                        <span>Total de Itens</span>
+                        <i data-lucide="list-checks"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: var(--solid-white);">${faturasMes.length + despesasNormais.length} obrigações</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 1. BLOCO DE FATURAS DE CARTÃO DE CRÉDITO DO MÊS -->
+            <div style="margin-bottom: 2.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="font-weight: 600; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="credit-card" style="width: 18px; height: 18px; color: var(--primary-color);"></i>
+                        Faturas de Cartão de Crédito
+                    </h3>
+                </div>
+
+                ${faturasMes.length === 0 ? `
+                    <div class="glass glass-card" style="padding: 1.8rem; text-align: center; color: var(--text-muted); border-radius: 14px;">
+                        Nenhuma fatura de cartão cadastrada com lançamentos para este mês.
+                    </div>
+                ` : `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem;">
+                        ${faturasMes.map(card => {
+                            const isPago = card.fatura_pendente <= 0;
+                            const isParcial = card.fatura_pendente > 0 && card.fatura_pendente < card.fatura_mes;
+                            
+                            return `
+                                <div class="glass glass-card" style="padding: 1.4rem; display: flex; flex-direction: column; justify-content: space-between; border-radius: 16px; position: relative;">
+                                    <div>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                                            <span style="font-weight: 700; font-size: 1.1rem; color: var(--text-color);">${card.nome}</span>
+                                            <span class="badge ${isPago ? 'pago' : (isParcial ? '' : 'pendente')}" style="padding: 0.25rem 0.6rem; font-weight: 600; font-size: 0.75rem;">
+                                                ${isPago ? 'PAGO' : (isParcial ? 'PARCIAL' : 'PENDENTE')}
+                                            </span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.4rem;">
+                                            <span class="text-gray">Valor da Fatura:</span>
+                                            <span style="font-weight: 600; color: var(--text-color);">${fmt(card.fatura_mes)}</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.8rem;">
+                                            <span class="text-gray">Ainda Pendente:</span>
+                                            <span style="font-weight: 700; color: ${isPago ? '#10b981' : '#ef4444'};">${fmt(card.fatura_pendente)}</span>
+                                        </div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">
+                                            Vencimento: Dia ${card.dia_vencimento}
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                        <button class="btn btn-secondary" style="flex: 1; padding: 0.5rem; font-size: 0.8rem; border-radius: 8px;" onclick="app.selectFaturaCatalog(${card.id}, '${currentMonth}'); window.location.hash='#/faturas';">
+                                            Ver Fatura
+                                        </button>
+                                        ${!isPago ? `
+                                            <button class="btn btn-primary" style="flex: 1; padding: 0.5rem; font-size: 0.8rem; border-radius: 8px; font-weight: 600;" onclick="app.openModalPagarFatura(${card.id}, '${card.nome}', ${card.fatura_pendente})">
+                                                Pagar Fatura
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `}
+            </div>
+
+            <!-- 2. BLOCO DE CONTAS E DESPESAS FIXAS DO MÊS -->
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 0.8rem;">
+                    <h3 style="font-weight: 600; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="receipt" style="width: 18px; height: 18px; color: var(--primary-color);"></i>
+                        Contas & Despesas Fixas do Mês
+                    </h3>
+                    
+                    <!-- Filtros Rápidos Segmentados -->
+                    <div style="display: inline-flex; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 10px; border: 1px solid var(--glass-border); gap: 4px;">
+                        <button onclick="app.setPagamentosFilter('todas')" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; border: none; background: ${filterType === 'todas' ? 'var(--primary-color)' : 'transparent'}; color: ${filterType === 'todas' ? '#fff' : 'var(--text-color)'}; font-weight: ${filterType === 'todas' ? '600' : '400'}; border-radius: 7px; cursor: pointer;">Todas</button>
+                        <button onclick="app.setPagamentosFilter('pendentes')" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; border: none; background: ${filterType === 'pendentes' ? 'var(--primary-color)' : 'transparent'}; color: ${filterType === 'pendentes' ? '#fff' : 'var(--text-color)'}; font-weight: ${filterType === 'pendentes' ? '600' : '400'}; border-radius: 7px; cursor: pointer;">Pendentes</button>
+                        <button onclick="app.setPagamentosFilter('fixas')" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; border: none; background: ${filterType === 'fixas' ? 'var(--primary-color)' : 'transparent'}; color: ${filterType === 'fixas' ? '#fff' : 'var(--text-color)'}; font-weight: ${filterType === 'fixas' ? '600' : '400'}; border-radius: 7px; cursor: pointer;">Apenas Fixas</button>
+                        <button onclick="app.setPagamentosFilter('pagas')" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; border: none; background: ${filterType === 'pagas' ? 'var(--primary-color)' : 'transparent'}; color: ${filterType === 'pagas' ? '#fff' : 'var(--text-color)'}; font-weight: ${filterType === 'pagas' ? '600' : '400'}; border-radius: 7px; cursor: pointer;">Pagas</button>
+                    </div>
+                </div>
+
+                <div class="glass glass-card" style="padding: 0; overflow: hidden; border-radius: 16px;">
+                    ${contasFiltradas.length === 0 ? `
+                        <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
+                            Nenhuma conta encontrada para o filtro selecionado.
+                        </div>
+                    ` : `
+                        <div style="overflow-x: auto;">
+                            <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="padding: 1rem 1.2rem; text-align: left;">Data / Vencimento</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: left;">Descrição</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: left;">Categoria</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: left;">Tipo</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: left;">Pessoa</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: right;">Valor</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: center;">Status / Ação</th>
+                                        <th style="padding: 1rem 1.2rem; text-align: center;">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${contasFiltradas.map(t => {
+                                        const dt = new Date(t.data + 'T00:00:00');
+                                        const dateFmt = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                                        return `
+                                            <tr style="border-bottom: 1px solid var(--glass-border);">
+                                                <td style="padding: 1rem 1.2rem; font-weight: 500;">${dateFmt}</td>
+                                                <td style="padding: 1rem 1.2rem; font-weight: 600;">
+                                                    ${t.descricao}
+                                                    ${t.cartao_credito_nome ? `<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">(${t.cartao_credito_nome})</div>` : ''}
+                                                </td>
+                                                <td style="padding: 1rem 1.2rem;">
+                                                    <span style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+                                                        <i data-lucide="${t.categoria_icone || 'tag'}" style="width: 14px; height: 14px;"></i>
+                                                        ${t.categoria_nome || 'Sem Categoria'}
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 1rem 1.2rem;">
+                                                    ${t.recorrente ? `
+                                                        <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.75rem; padding: 0.2rem 0.5rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+                                                            <i data-lucide="repeat" style="width: 12px; height: 12px;"></i> Fixa
+                                                        </span>
+                                                    ` : `
+                                                        <span style="font-size: 0.75rem; color: var(--text-muted);">Pontual</span>
+                                                    `}
+                                                </td>
+                                                <td style="padding: 1rem 1.2rem; font-size: 0.85rem;">${t.pessoa || '-'}</td>
+                                                <td style="padding: 1rem 1.2rem; text-align: right; font-weight: 700; color: #ef4444;">${fmt(t.valor)}</td>
+                                                <td style="padding: 1rem 1.2rem; text-align: center;">
+                                                    <span class="badge badge-status ${t.pago_ou_confirmado ? 'pago' : 'pendente'}" onclick="app.toggleConfirmacao(${t.id})" style="cursor: pointer; padding: 0.35rem 0.75rem; font-weight: 600;" title="Clique para alterar status">
+                                                        ${t.pago_ou_confirmado ? '✓ Pago' : '⏳ Conciliar / Pagar'}
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 1rem 1.2rem; text-align: center;">
+                                                    <div style="display: flex; gap: 0.4rem; justify-content: center;">
+                                                        <button class="btn-icon" title="Editar" onclick="app.openModalEditTransacao(${t.id})">
+                                                            <i data-lucide="edit-3" style="width: 16px; height: 16px;"></i>
+                                                        </button>
+                                                        <button class="btn-icon" title="Excluir" onclick="app.handleDeleteTransacao(${t.id}, ${!!t.grupo_parcelamento_id || !!t.recorrente})">
+                                                            <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
     }
 
     onFiltroFaturasPendentesChange(checked) {

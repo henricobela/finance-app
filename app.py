@@ -1297,15 +1297,22 @@ def get_resumo():
     if not mes:
         mes = date.today().strftime('%Y-%m')
         
-    if session.get('user_cpf'):
-        processar_recorrencias(session['user_cpf'], mes)
-        
     ano_str, mes_str = mes.split('-')
     ano = int(ano_str)
     mes_int = int(mes_str)
     ultimo_dia = calendar.monthrange(ano, mes_int)[1]
     data_ini = date(ano, mes_int, 1)
     data_fim = date(ano, mes_int, ultimo_dia)
+    
+    # Calcular data limite para a projeção de 6 meses futuros
+    fut_limite_ano = ano + (mes_int + 6 - 1) // 12
+    fut_limite_mes = (mes_int + 6 - 1) % 12 + 1
+    fut_mes_limite_str = f"{fut_limite_ano}-{str(fut_limite_mes).zfill(2)}"
+    ultimo_dia_limite = calendar.monthrange(fut_limite_ano, fut_limite_mes)[1]
+    data_limite_projecao = date(fut_limite_ano, fut_limite_mes, ultimo_dia_limite)
+
+    if session.get('user_cpf'):
+        processar_recorrencias(session['user_cpf'], fut_mes_limite_str)
     
     # 1. Carregar todos os dados essenciais para processamento em memória (Evita N+1 queries sobre rede)
     contas = ContaBancaria.query.filter_by(usuario_cpf=session['user_cpf']).all()
@@ -1435,34 +1442,11 @@ def get_resumo():
         fut_mes_str = f"{fut_ano}-{str(fut_mes).zfill(2)}"
         
         if i == 0:
-            # Para o mês corrente, usamos os acumulados já calculados em memória
             fut_receitas = receitas_mes
             fut_despesas = despesas_mes
-            pool_busca = transacoes_mes
         else:
-            # Para meses futuros, filtramos do nosso lote único 'transacoes_futuro'
             fut_receitas = sum(t.valor for t in transacoes_futuro if t.tipo == 'RECEITA' and t.data >= fut_data_ini and t.data <= fut_data_fim)
             fut_despesas = sum(t.valor for t in transacoes_futuro if t.tipo == 'DESPESA' and t.fatura_cartao_id is None and t.data >= fut_data_ini and t.data <= fut_data_fim)
-            pool_busca = transacoes_futuro
-        
-        # B. Verificar lançamentos recorrentes
-        for rec in recorrentes:
-            if rec.data <= fut_data_fim:
-                # Busca rápida linear em memória ao invés de query SQL no banco
-                ja_existe = any(
-                    t.tipo == rec.tipo and
-                    t.descricao == rec.descricao and
-                    t.valor == rec.valor and
-                    t.data >= fut_data_ini and
-                    t.data <= fut_data_fim
-                    for t in pool_busca
-                )
-                
-                if not ja_existe:
-                    if rec.tipo == 'RECEITA':
-                        fut_receitas += rec.valor
-                    elif rec.tipo == 'DESPESA':
-                        fut_despesas += rec.valor
                         
         projecoes.append({
             'mes': fut_mes_str,
