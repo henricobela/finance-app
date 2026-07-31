@@ -38,6 +38,8 @@ def add_months(sourcedate, months):
     year = sourcedate.year + month // 12
     month = month % 12 + 1
     day = min(sourcedate.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
 # Processador automático de transações fixas/recorrentes para meses subsequentes
 def processar_recorrencias(usuario_cpf, target_mes_str=None):
     if not usuario_cpf:

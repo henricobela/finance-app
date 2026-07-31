@@ -67,20 +67,7 @@ with app_pg.app_context():
         print("Criando tabelas no Supabase (se não existirem)...")
         db.create_all()
         
-        print("Limpando dados antigos no Supabase para evitar conflitos de IDs...")
-        # A exclusão respeita a hierarquia de chaves estrangeiras
-        db.session.query(Transacao).delete()
-        db.session.query(Orcamento).delete()
-        db.session.query(MetaFinanceira).delete()
-        db.session.query(Investimento).delete()
-        db.session.query(Configuracao).delete()
-        db.session.query(CartaoCredito).delete()
-        db.session.query(Categoria).delete()
-        db.session.query(ContaBancaria).delete()
-        db.session.query(Usuario).delete()
-        db.session.query(TaxaSGS).delete()
-        db.session.commit()
-        print("Supabase limpo para inserção.")
+        print("Proteção ativada: limpeza automática desativada para evitar sobrescrever dados da produção.")
         
         print("Copiando registros para o Supabase PostgreSQL...")
         
