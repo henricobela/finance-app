@@ -1456,24 +1456,58 @@ class FinanceApp {
         // 2. Faturas de cartão para o mês selecionado
         const faturasMes = (s.faturas_cartoes || []).filter(card => card.fatura_mes > 0 || card.fatura_pendente > 0);
 
-        // 3. Métricas
+        // 3. CÁLCULO DOS 3 BIGNUMBERS SOLICITADOS
+        
+        // 1º BigNumber: Valor somado dos cartões de crédito
+        const totalFaturasCartao = faturasMes.reduce((acc, c) => acc + (c.fatura_mes || 0), 0);
         const totalFaturasPendente = faturasMes.reduce((acc, c) => acc + (c.fatura_pendente || 0), 0);
-        const totalContasPendente = despesasSemCartao.filter(t => !t.pago_ou_confirmado).reduce((acc, t) => acc + t.valor, 0);
-        const totalFaltaPagar = totalFaturasPendente + totalContasPendente;
+        const totalFaturasPagas = max0(totalFaturasCartao - totalFaturasPendente);
 
-        const totalContasPagas = despesasSemCartao.filter(t => t.pago_ou_confirmado).reduce((acc, t) => acc + t.valor, 0);
-        const totalFaturasPagas = faturasMes.reduce((acc, c) => acc + (c.fatura_mes - c.fatura_pendente), 0);
-        const totalJaPago = totalContasPagas + totalFaturasPagas;
+        // 2º BigNumber: Valor somado das despesas fixas != cartão de crédito
+        const despesasFixasSemCartao = despesasSemCartao.filter(t => t.recorrente);
+        const totalFixasSemCartao = despesasFixasSemCartao.reduce((acc, t) => acc + t.valor, 0);
+        const totalFixasSemCartaoPendente = despesasFixasSemCartao.filter(t => !t.pago_ou_confirmado).reduce((acc, t) => acc + t.valor, 0);
+        const totalFixasSemCartaoPagas = max0(totalFixasSemCartao - totalFixasSemCartaoPendente);
 
-        const totalCompromisso = faturasMes.reduce((acc, c) => acc + c.fatura_mes, 0) + despesasSemCartao.reduce((acc, t) => acc + t.valor, 0);
+        // 3º BigNumber: Valor a pagar até o dia 14 vs valor a pagar depois do dia 14
+        let totalAteDia14 = 0.0;
+        let totalDepoisDia14 = 0.0;
+        let pendenteAteDia14 = 0.0;
+        let pendenteDepoisDia14 = 0.0;
+
+        // A. Faturas de Cartão por dia de vencimento
+        faturasMes.forEach(c => {
+            const diaVenc = c.dia_vencimento || 10;
+            if (diaVenc <= 14) {
+                totalAteDia14 += c.fatura_mes;
+                pendenteAteDia14 += c.fatura_pendente;
+            } else {
+                totalDepoisDia14 += c.fatura_mes;
+                pendenteDepoisDia14 += c.fatura_pendente;
+            }
+        });
+
+        // B. Despesas sem cartão por data do mês
+        despesasSemCartao.forEach(t => {
+            const dt = new Date(t.data + 'T00:00:00');
+            const dia = dt.getDate();
+            if (dia <= 14) {
+                totalAteDia14 += t.valor;
+                if (!t.pago_ou_confirmado) pendenteAteDia14 += t.valor;
+            } else {
+                totalDepoisDia14 += t.valor;
+                if (!t.pago_ou_confirmado) pendenteDepoisDia14 += t.valor;
+            }
+        });
+
+        function max0(v) { return Math.max(0, v); }
 
         // Filtro selecionado para as contas (Apenas Fixas [padrão] | Pendentes | Todas | Pagas)
         const filterType = this.state.pagamentosFilter || 'fixas';
 
         let contasFiltradas = despesasSemCartao;
         if (filterType === 'fixas') {
-            // Apenas despesas fixas (recorrente=True) e sem cartão de crédito
-            contasFiltradas = despesasSemCartao.filter(t => t.recorrente);
+            contasFiltradas = despesasFixasSemCartao;
         } else if (filterType === 'pendentes') {
             contasFiltradas = despesasSemCartao.filter(t => !t.pago_ou_confirmado);
         } else if (filterType === 'pagas') {
@@ -1493,47 +1527,63 @@ class FinanceApp {
                 </button>
             </div>
 
-            <!-- Resumo das Métricas de Pagamento -->
-            <div class="summary-grid" style="margin-bottom: 2rem;">
-                <div class="glass glass-card summary-card" style="border-color: rgba(239, 68, 68, 0.3);">
-                    <div class="summary-card-header">
-                        <span>Ainda Falta Pagar</span>
-                        <i data-lucide="alert-circle" style="color: #ef4444;"></i>
+            <!-- OS 3 BIGNUMBERS PRINCIPAIS DE PAGAMENTOS -->
+            <div class="summary-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem;">
+                
+                <!-- 1º BigNumber: Total Cartões de Crédito -->
+                <div class="glass glass-card summary-card" style="border-left: 4px solid #818cf8; padding: 1.4rem;">
+                    <div class="summary-card-header" style="margin-bottom: 0.6rem;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Total Cartões de Crédito</span>
+                        <i data-lucide="credit-card" style="color: #818cf8; width: 22px; height: 22px;"></i>
                     </div>
                     <div class="summary-card-body">
-                        <div class="summary-value" style="color: #ef4444;">${fmt(totalFaltaPagar)}</div>
+                        <div class="summary-value" style="color: #818cf8; font-size: 1.65rem; font-weight: 800;">${fmt(totalFaturasCartao)}</div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; justify-content: space-between; border-top: 1px solid var(--glass-border); padding-top: 0.4rem;">
+                            <span>Pendente: <strong style="color: #ef4444;">${fmt(totalFaturasPendente)}</strong></span>
+                            <span>Pago: <strong style="color: #10b981;">${fmt(totalFaturasPagas)}</strong></span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="glass glass-card summary-card" style="border-color: rgba(16, 185, 129, 0.3);">
-                    <div class="summary-card-header">
-                        <span>Já Pago / Conciliado</span>
-                        <i data-lucide="check-circle-2" style="color: #10b981;"></i>
+                <!-- 2º BigNumber: Total Despesas Fixas (sem Cartão) -->
+                <div class="glass glass-card summary-card" style="border-left: 4px solid #06b6d4; padding: 1.4rem;">
+                    <div class="summary-card-header" style="margin-bottom: 0.6rem;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Despesas Fixas (Sem Cartão)</span>
+                        <i data-lucide="receipt" style="color: #06b6d4; width: 22px; height: 22px;"></i>
                     </div>
                     <div class="summary-card-body">
-                        <div class="summary-value" style="color: #10b981;">${fmt(totalJaPago)}</div>
+                        <div class="summary-value" style="color: #06b6d4; font-size: 1.65rem; font-weight: 800;">${fmt(totalFixasSemCartao)}</div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; justify-content: space-between; border-top: 1px solid var(--glass-border); padding-top: 0.4rem;">
+                            <span>Pendente: <strong style="color: #ef4444;">${fmt(totalFixasSemCartaoPendente)}</strong></span>
+                            <span>Pago: <strong style="color: #10b981;">${fmt(totalFixasSemCartaoPagas)}</strong></span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="glass glass-card summary-card">
-                    <div class="summary-card-header">
-                        <span>Compromisso Total do Mês</span>
-                        <i data-lucide="calculator"></i>
+                <!-- 3º BigNumber: Vencimentos até Dia 14 vs Após Dia 14 -->
+                <div class="glass glass-card summary-card" style="border-left: 4px solid #f97316; padding: 1.4rem;">
+                    <div class="summary-card-header" style="margin-bottom: 0.6rem;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Vencimentos por Quinzena</span>
+                        <i data-lucide="calendar-range" style="color: #f97316; width: 22px; height: 22px;"></i>
                     </div>
                     <div class="summary-card-body">
-                        <div class="summary-value">${fmt(totalCompromisso)}</div>
+                        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.4rem;">
+                            <div style="display: flex; flex-direction: column;">
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Até Dia 14</span>
+                                <span style="font-size: 1.35rem; font-weight: 800; color: #f97316;">${fmt(totalAteDia14)}</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; text-align: right;">
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Após Dia 14</span>
+                                <span style="font-size: 1.35rem; font-weight: 800; color: var(--solid-white);">${fmt(totalDepoisDia14)}</span>
+                            </div>
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); border-top: 1px solid var(--glass-border); padding-top: 0.4rem; display: flex; justify-content: space-between;">
+                            <span>Pendente ≤14: <strong style="color: #ef4444;">${fmt(pendenteAteDia14)}</strong></span>
+                            <span>Pendente >14: <strong style="color: #ef4444;">${fmt(pendenteDepoisDia14)}</strong></span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="glass glass-card summary-card">
-                    <div class="summary-card-header">
-                        <span>Total de Itens</span>
-                        <i data-lucide="list-checks"></i>
-                    </div>
-                    <div class="summary-card-body">
-                        <div class="summary-value" style="color: var(--solid-white);">${faturasMes.length + despesasSemCartao.filter(t => t.recorrente).length} fixos / faturas</div>
-                    </div>
-                </div>
             </div>
 
             <!-- 1. CATÁLOGO DE FATURAS DE CARTÃO DE CRÉDITO DO MÊS -->
