@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "2. Adicionando arquivos alterados e o novo backup..." -ForegroundColor Yellow
+Write-Host "2. Adicionando arquivos alterados..." -ForegroundColor Yellow
 git add .
 
 Write-Host ""

@@ -17,8 +17,10 @@ app_pg.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app_pg)
 
 local_sqlite_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'financas.db')
+backups_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'backups')
+os.makedirs(backups_dir, exist_ok=True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-json_backup_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), f'backup_supabase_{timestamp}.json')
+json_backup_path = os.path.join(backups_dir, f'backup_supabase_{timestamp}.json')
 
 def model_to_column_dict(model_instance):
     return {col.key: getattr(model_instance, col.key) for col in inspect(model_instance).mapper.column_attrs}
@@ -90,7 +92,7 @@ app_local.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{local_sqlite_path}'
 app_local.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 if os.path.exists(local_sqlite_path):
-    backup_db_old = os.path.join(os.path.abspath(os.path.dirname(__file__)), f'financas_local_old_{timestamp}.db')
+    backup_db_old = os.path.join(backups_dir, f'financas_local_old_{timestamp}.db')
     shutil.copy2(local_sqlite_path, backup_db_old)
     print(f"-> Cópia de segurança do SQLite anterior salva em: {backup_db_old}")
 
