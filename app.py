@@ -38,7 +38,105 @@ def add_months(sourcedate, months):
     year = sourcedate.year + month // 12
     month = month % 12 + 1
     day = min(sourcedate.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day)
+# Processador automático de transações fixas/recorrentes para meses subsequentes
+def processar_recorrencias(usuario_cpf, target_mes_str=None):
+    if not usuario_cpf:
+        return
+        
+    if not target_mes_str:
+        target_mes_str = date.today().strftime('%Y-%m')
+        
+    try:
+        ano_target, mes_target = map(int, target_mes_str.split('-'))
+        data_target_limit = date(ano_target, mes_target, calendar.monthrange(ano_target, mes_target)[1])
+    except Exception:
+        return
+
+    transacoes_recorrentes = Transacao.query.filter_by(
+        usuario_cpf=usuario_cpf,
+        recorrente=True
+    ).all()
+    
+    if not transacoes_recorrentes:
+        return
+        
+    configs_del = Configuracao.query.filter(
+        Configuracao.usuario_cpf == usuario_cpf,
+        Configuracao.chave.like('del_%')
+    ).all()
+    chaves_del = {c.chave for c in configs_del}
+
+    grupos_processados = set()
+    novos_gerados = False
+
+    for rec in transacoes_recorrentes:
+        if not rec.grupo_parcelamento_id:
+            rec.grupo_parcelamento_id = f"rec_{rec.id}"
+            db.session.commit()
+
+        gid = rec.grupo_parcelamento_id
+        if gid in grupos_processados:
+            continue
+        grupos_processados.add(gid)
+
+        if f"del_all_{gid}" in chaves_del:
+            continue
+
+        instancias_grupo = Transacao.query.filter_by(
+            usuario_cpf=usuario_cpf,
+            grupo_parcelamento_id=gid
+        ).order_by(Transacao.data.asc()).all()
+
+        if not instancias_grupo:
+            continue
+
+        base_rec = instancias_grupo[0]
+        data_base = base_rec.data
+
+        months_diff = 1
+        while True:
+            next_date = add_months(data_base, months_diff)
+            if next_date > data_target_limit:
+                break
+
+            next_mes_str = next_date.strftime('%Y-%m')
+
+            if f"del_{gid}_{next_mes_str}" in chaves_del:
+                months_diff += 1
+                continue
+
+            ja_existe = any(t.data.strftime('%Y-%m') == next_mes_str for t in instancias_grupo)
+
+            if not ja_existe:
+                if base_rec.tipo == 'DESPESA' and base_rec.cartao_credito_id:
+                    cartao = CartaoCredito.query.filter_by(id=base_rec.cartao_credito_id, usuario_cpf=usuario_cpf).first()
+                    if cartao:
+                        cartao.limite_disponivel -= base_rec.valor
+
+                nova_instancia = Transacao(
+                    tipo=base_rec.tipo,
+                    descricao=base_rec.descricao,
+                    valor=base_rec.valor,
+                    data=next_date,
+                    categoria_id=base_rec.categoria_id,
+                    conta_origem_id=base_rec.conta_origem_id,
+                    conta_destino_id=base_rec.conta_destino_id,
+                    cartao_credito_id=base_rec.cartao_credito_id,
+                    pago_ou_confirmado=False,
+                    pagador_recebedor=base_rec.pagador_recebedor,
+                    recorrente=True,
+                    grupo_parcelamento_id=gid,
+                    pessoa=base_rec.pessoa,
+                    usuario_cpf=usuario_cpf
+                )
+                db.session.add(nova_instancia)
+                instancias_grupo.append(nova_instancia)
+                novos_gerados = True
+
+            months_diff += 1
+
+    if novos_gerados:
+        db.session.commit()
 
 # Inicialização e semente de dados de teste (Seed)
 def seed_categories_for_user(cpf):
@@ -578,6 +676,8 @@ def delete_categoria(id):
 @app.route('/api/orcamentos', methods=['GET'])
 def get_orcamentos():
     mes = request.args.get('mes')  # AAAA-MM
+    if session.get('user_cpf'):
+        processar_recorrencias(session['user_cpf'], mes)
     query = Orcamento.query.filter_by(usuario_cpf=session['user_cpf'])
     if mes:
         query = query.filter_by(mes=mes)
@@ -698,6 +798,9 @@ def get_transacoes():
     busca = request.args.get('busca')
     is_pagamento_fatura = request.args.get('is_pagamento_fatura')
     
+    if session.get('user_cpf'):
+        processar_recorrencias(session['user_cpf'], mes)
+        
     query = Transacao.query.filter_by(usuario_cpf=session['user_cpf'])
     
     if is_pagamento_fatura == 'true':
@@ -808,6 +911,8 @@ def create_transacao():
         db.session.commit()
         return jsonify([t.to_dict() for t in transacoes_criadas]), 201
         
+    grupo_rec_id = f"rec_{uuid.uuid4()}" if recorrente else None
+
     # Transação simples
     transacao = Transacao(
         tipo=tipo,
@@ -821,6 +926,7 @@ def create_transacao():
         pago_ou_confirmado=pago_ou_confirmado,
         pagador_recebedor=pagador_recebedor,
         recorrente=recorrente,
+        grupo_parcelamento_id=grupo_rec_id,
         pessoa=pessoa,
         usuario_cpf=session['user_cpf']
     )
@@ -950,9 +1056,20 @@ def delete_transacao(id):
     # Lista de transações que serão apagadas
     alvos = [transacao]
     
-    # Se fizer parte de um parcelamento e o usuário quiser deletar todo o grupo
+    # Se fizer parte de um parcelamento ou recorrência e o usuário quiser deletar todo o grupo
     if apagar_grupo and transacao.grupo_parcelamento_id:
         alvos = Transacao.query.filter_by(grupo_parcelamento_id=transacao.grupo_parcelamento_id, usuario_cpf=session['user_cpf']).all()
+        if transacao.recorrente:
+            cfg = Configuracao.query.filter_by(chave=f"del_all_{transacao.grupo_parcelamento_id}", usuario_cpf=session['user_cpf']).first()
+            if not cfg:
+                db.session.add(Configuracao(chave=f"del_all_{transacao.grupo_parcelamento_id}", valor="1", usuario_cpf=session['user_cpf']))
+    else:
+        if transacao.recorrente and transacao.grupo_parcelamento_id:
+            mes_del = transacao.data.strftime('%Y-%m')
+            chave_del = f"del_{transacao.grupo_parcelamento_id}_{mes_del}"
+            cfg = Configuracao.query.filter_by(chave=chave_del, usuario_cpf=session['user_cpf']).first()
+            if not cfg:
+                db.session.add(Configuracao(chave=chave_del, valor="1", usuario_cpf=session['user_cpf']))
         
     for t in alvos:
         # Reverte impactos de saldo/limites
@@ -1098,6 +1215,8 @@ def bulk_update_categoria():
 
 @app.route('/api/faturas', methods=['GET'])
 def get_all_faturas():
+    if session.get('user_cpf'):
+        processar_recorrencias(session['user_cpf'])
     # Retorna uma lista de todas as faturas históricas de todos os cartões
     cartoes = CartaoCredito.query.filter_by(usuario_cpf=session['user_cpf']).all()
     transacoes_cartao = Transacao.query.filter(
@@ -1175,6 +1294,9 @@ def get_resumo():
     mes = request.args.get('mes')  # AAAA-MM
     if not mes:
         mes = date.today().strftime('%Y-%m')
+        
+    if session.get('user_cpf'):
+        processar_recorrencias(session['user_cpf'], mes)
         
     ano_str, mes_str = mes.split('-')
     ano = int(ano_str)

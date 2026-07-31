@@ -1103,7 +1103,7 @@ class FinanceApp {
                                             <button class="btn-icon" title="Editar Transação" onclick="app.openModalEditTransacao(${t.id})">
                                                 <i data-lucide="edit-3"></i>
                                             </button>
-                                            <button class="btn-icon" title="Excluir Transação" onclick="app.handleDeleteTransacao(${t.id}, ${!!t.grupo_parcelamento_id})">
+                                            <button class="btn-icon" title="Excluir Transação" onclick="app.handleDeleteTransacao(${t.id}, ${!!t.grupo_parcelamento_id || !!t.recorrente})">
                                                 <i data-lucide="trash-2"></i>
                                             </button>
                                         </div>
@@ -3408,18 +3408,18 @@ class FinanceApp {
     }
 
     // Excluir Lançamentos
-    async handleDeleteTransacao(id, isParcelado) {
+    async handleDeleteTransacao(id, isGrupo) {
         let apagarGrupo = false;
         
-        if (isParcelado) {
+        if (isGrupo) {
             const escolha = await this.showConfirm(
-                "Esta é uma despesa pertencente a um grupo parcelado. Como deseja proceder com a exclusão?",
-                "Excluir Despesa Parcelada",
+                "Este lançamento faz parte de um grupo recorrente/parcelado. Como deseja proceder com a exclusão?",
+                "Excluir Lançamento",
                 {
-                    confirmText: "Excluir Todo o Grupo",
+                    confirmText: "Excluir Todo o Grupo/Série",
                     cancelText: "Desistir",
                     showThird: true,
-                    thirdText: "Apenas Esta Parcela"
+                    thirdText: "Apenas Esta Ocorrência"
                 }
             );
             
