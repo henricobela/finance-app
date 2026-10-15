@@ -21,7 +21,8 @@ class FinanceApp {
                 parcelado: '',
                 recorrente: '',
                 busca: '',
-                periodo: ''
+                periodo: '',
+                origem: '' // '', 'ALL_CONTAS', 'ALL_CARTOES', 'conta:ID', 'cartao:ID'
             },
             editingAccountId: null,
             editingCardId: null,
@@ -472,85 +473,99 @@ class FinanceApp {
 
         // 4. Carrega os dados mais recentes do servidor em background
         try {
-            await this.loadViewData();
+            const isFresh = await this.loadViewData();
+            // Se outra navegação/mês foi disparada enquanto carregava, descarta este resultado
+            if (!isFresh) return;
             
             // 5. Re-renderiza silenciosamente com os dados atualizados para atualizar valores na tela
-            switch (this.state.activeView) {
-                case 'dashboard': this.renderDashboard(); break;
-                case 'transacoes': this.renderTransacoes(); break;
-                case 'contas-cartoes': this.renderContasCartoes(); break;
-                case 'faturas': this.renderFaturas(); break;
-                case 'pagamentos': this.renderPagamentos(); break;
-                case 'orcamentos': this.renderOrcamentos(); break;
-                case 'metas': this.renderMetas(); break;
-                case 'configuracoes': this.renderConfiguracoes(); break;
-                case 'investimentos': this.renderInvestimentos(); break;
-                default: this.renderDashboard(); break;
-            }
-            lucide.createIcons();
+            this.renderActiveView();
         } catch (err) {
             console.error("Erro na atualização em background:", err);
         }
     }
 
-    // Carrega dados da API específicos de cada tela
-    async loadViewData() {
-        try {
-            // Toda view precisa das contas/cartões atualizados
-            const [contasRes, cartoesRes] = await Promise.all([
-                fetch('/api/contas'),
-                fetch('/api/cartoes')
-            ]);
-            this.state.accounts = await contasRes.json();
-            this.state.cards = await cartoesRes.json();
-            this.populateSelects();
+    // Re-renderiza a view ativa usando apenas os dados já em memória (sem requisições)
+    renderActiveView() {
+        switch (this.state.activeView) {
+            case 'dashboard': this.renderDashboard(); break;
+            case 'transacoes': this.renderTransacoes(); break;
+            case 'contas-cartoes': this.renderContasCartoes(); break;
+            case 'faturas': this.renderFaturas(); break;
+            case 'pagamentos': this.renderPagamentos(); break;
+            case 'orcamentos': this.renderOrcamentos(); break;
+            case 'metas': this.renderMetas(); break;
+            case 'configuracoes': this.renderConfiguracoes(); break;
+            case 'investimentos': this.renderInvestimentos(); break;
+            default: this.renderDashboard(); break;
+        }
+        lucide.createIcons();
+    }
 
-            if (this.state.activeView === 'dashboard') {
-                const res = await fetch(`/api/resumo?mes=${this.state.currentMonth}`);
-                this.state.summary = await res.json();
-            } else if (this.state.activeView === 'transacoes') {
-                let url = `/api/transacoes?mes=${this.state.currentMonth}`;
-                if (this.state.filters.tipo) url += `&tipo=${this.state.filters.tipo}`;
-                if (this.state.filters.categoria_id) url += `&categoria_id=${this.state.filters.categoria_id}`;
-                if (this.state.filters.busca) url += `&busca=${encodeURIComponent(this.state.filters.busca)}`;
-                
-                const res = await fetch(url);
-                this.state.transactions = await res.json();
-            } else if (this.state.activeView === 'orcamentos') {
-                const [orcRes, resumoRes] = await Promise.all([
-                    fetch(`/api/orcamentos?mes=${this.state.currentMonth}`),
-                    fetch(`/api/resumo?mes=${this.state.currentMonth}`)
-                ]);
-                this.state.budgets = await orcRes.json();
-                this.state.summary = await resumoRes.json();
-            } else if (this.state.activeView === 'metas') {
-                const res = await fetch('/api/metas');
-                this.state.metas = await res.json();
-            } else if (this.state.activeView === 'configuracoes') {
-                const res = await fetch('/api/categorias');
-                this.state.categories = await res.json();
-            } else if (this.state.activeView === 'investimentos') {
-                const res = await fetch(`/api/investimentos?mes=${this.state.currentMonth}`);
-                this.state.investmentData = await res.json();
-            } else if (this.state.activeView === 'faturas') {
-                const [payRes, fatRes] = await Promise.all([
-                    fetch('/api/transacoes?is_pagamento_fatura=true'),
-                    fetch('/api/faturas')
-                ]);
-                this.state.billPayments = await payRes.json();
-                this.state.allFaturas = await fatRes.json();
-            } else if (this.state.activeView === 'pagamentos') {
-                const [transRes, resumoRes, faturasRes] = await Promise.all([
-                    fetch(`/api/transacoes?mes=${this.state.currentMonth}`),
-                    fetch(`/api/resumo?mes=${this.state.currentMonth}`),
-                    fetch('/api/faturas')
-                ]);
-                this.state.transactions = await transRes.json();
-                this.state.summary = await resumoRes.json();
-                this.state.allFaturas = await faturasRes.json();
-            }
+    // Carrega dados da API específicos de cada tela.
+    // Todas as requisições são disparadas em PARALELO (antes contas/cartões bloqueavam o resto).
+    // Retorna false se a resposta ficou obsoleta (usuário trocou de tela/mês no meio do carregamento).
+    async loadViewData() {
+        const reqId = (this._loadSeq = (this._loadSeq || 0) + 1);
+        const view = this.state.activeView;
+        const mes = this.state.currentMonth;
+
+        const getJSON = async (url) => {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Falha ao carregar ${url} (${res.status})`);
+            return res.json();
+        };
+
+        // Toda view precisa das contas/cartões atualizados
+        const jobs = {
+            accounts: getJSON('/api/contas'),
+            cards: getJSON('/api/cartoes')
+        };
+
+        switch (view) {
+            case 'dashboard':
+                jobs.summary = getJSON(`/api/resumo?mes=${mes}`);
+                break;
+            case 'transacoes':
+                // Busca o mês inteiro; todos os filtros são aplicados no cliente (instantâneo)
+                jobs.transactions = getJSON(`/api/transacoes?mes=${mes}`);
+                break;
+            case 'orcamentos':
+                jobs.budgets = getJSON(`/api/orcamentos?mes=${mes}`);
+                jobs.summary = getJSON(`/api/resumo?mes=${mes}`);
+                break;
+            case 'metas':
+                jobs.metas = getJSON('/api/metas');
+                break;
+            case 'configuracoes':
+                jobs.categories = getJSON('/api/categorias');
+                break;
+            case 'investimentos':
+                jobs.investmentData = getJSON(`/api/investimentos?mes=${mes}`);
+                break;
+            case 'faturas':
+                jobs.billPayments = getJSON('/api/transacoes?is_pagamento_fatura=true');
+                jobs.allFaturas = getJSON('/api/faturas');
+                break;
+            case 'pagamentos':
+                jobs.transactions = getJSON(`/api/transacoes?mes=${mes}`);
+                jobs.summary = getJSON(`/api/resumo?mes=${mes}`);
+                jobs.allFaturas = getJSON('/api/faturas');
+                break;
+        }
+
+        try {
+            const keys = Object.keys(jobs);
+            const values = await Promise.all(Object.values(jobs));
+
+            // Descarta respostas obsoletas para não sobrescrever dados de outra tela/mês
+            if (reqId !== this._loadSeq || mes !== this.state.currentMonth) return false;
+
+            keys.forEach((k, i) => { this.state[k] = values[i]; });
+            this.populateSelects();
+            return true;
         } catch (err) {
             console.error("Erro ao carregar dados para a tela:", err);
+            return false;
         }
     }
 
@@ -617,6 +632,21 @@ class FinanceApp {
                     </div>
                     <div class="summary-card-body">
                         <div class="summary-value" style="color: #ef4444;">${fmt(s.falta_pagar || 0)}</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card summary-card-receber" id="bignumber-falta-receber" onclick="app.verReceitasPendentes()" title="Ver receitas pendentes do mês">
+                    <div class="summary-card-header">
+                        <span>Ainda Falta Receber</span>
+                        <i data-lucide="hourglass" style="color: #22c55e;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #22c55e;">${fmt(s.falta_receber || 0)}</div>
+                        <div class="summary-card-sub">
+                            Recebido: <strong>${fmt(s.total_recebido || 0)}</strong>
+                            ${s.total_receitas > 0 ? `<span class="summary-card-pct">${Math.round(((s.total_recebido || 0) / s.total_receitas) * 100)}%</span>` : ''}
+                        </div>
+                        <div class="receber-progress"><div class="receber-progress-fill" style="width: ${s.total_receitas > 0 ? Math.min(100, ((s.total_recebido || 0) / s.total_receitas) * 100) : 0}%"></div></div>
                     </div>
                 </div>
             </div>
@@ -884,6 +914,75 @@ class FinanceApp {
         });
     }
 
+    // Aplica todos os filtros da tela de Transações em memória (usado na tabela e na exportação CSV)
+    getFilteredTransactions() {
+        const f = this.state.filters;
+        let filtered = [...(this.state.transactions || [])];
+
+        // 1. Filtro de Tipo (seletor de botões)
+        if (f.tipo) {
+            filtered = filtered.filter(t => t.tipo === f.tipo);
+        }
+
+        // 2. Filtro de Categoria
+        if (f.categoria_id) {
+            filtered = filtered.filter(t => t.categoria_id === parseInt(f.categoria_id));
+        }
+
+        // 3. Filtro de Parcelamento
+        if (f.parcelado === 'SIM') {
+            filtered = filtered.filter(t => t.total_parcelas !== null);
+        } else if (f.parcelado === 'NAO') {
+            filtered = filtered.filter(t => t.total_parcelas === null);
+        }
+
+        // 4. Filtro de Recorrência / Fixas
+        if (f.recorrente === 'SIM') {
+            filtered = filtered.filter(t => t.recorrente === true);
+        } else if (f.recorrente === 'NAO') {
+            filtered = filtered.filter(t => !t.recorrente);
+        }
+
+        // 5. Filtro de Período (Vencimento)
+        if (f.periodo) {
+            const cutoff = this.state.dia_corte || 14;
+            const dia = t => parseInt(t.data.split('-')[2]);
+            if (f.periodo === 'ATE_CORTE') {
+                filtered = filtered.filter(t => dia(t) <= cutoff);
+            } else if (f.periodo === 'DEPOIS_CORTE') {
+                filtered = filtered.filter(t => dia(t) > cutoff);
+            }
+        }
+
+        // 6. Filtro de Conta Bancária / Cartão de Crédito
+        if (f.origem) {
+            if (f.origem === 'ALL_CARTOES') {
+                filtered = filtered.filter(t => !!t.cartao_credito_id);
+            } else if (f.origem === 'ALL_CONTAS') {
+                filtered = filtered.filter(t => !t.cartao_credito_id && (t.conta_origem_id || t.conta_destino_id));
+            } else {
+                const [kind, rawId] = f.origem.split(':');
+                const id = parseInt(rawId);
+                if (kind === 'cartao') {
+                    filtered = filtered.filter(t => t.cartao_credito_id === id);
+                } else if (kind === 'conta') {
+                    filtered = filtered.filter(t => t.conta_origem_id === id || t.conta_destino_id === id);
+                }
+            }
+        }
+
+        // 7. Busca textual (descrição ou pagador/recebedor)
+        if (f.busca && f.busca.trim()) {
+            const termo = f.busca.trim().toLowerCase();
+            filtered = filtered.filter(t =>
+                (t.descricao || '').toLowerCase().includes(termo) ||
+                (t.pagador_recebedor || '').toLowerCase().includes(termo)
+            );
+        }
+
+        return filtered;
+    }
+
     renderTransacoes() {
         const viewPanel = document.getElementById('app-view');
         const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -894,51 +993,8 @@ class FinanceApp {
         }
 
         // Filtragem cliente-side para resposta instantânea e contabilidade dinâmica
-        let filtered = [...this.state.transactions];
-
-        // 1. Filtro de Tipo (seletor de botões)
-        if (this.state.filters.tipo) {
-            filtered = filtered.filter(t => t.tipo === this.state.filters.tipo);
-        }
-
-        // 2. Filtro de Categoria
-        if (this.state.filters.categoria_id) {
-            filtered = filtered.filter(t => t.categoria_id === parseInt(this.state.filters.categoria_id));
-        }
-
-        // 3. Filtro de Parcelamento
-        if (this.state.filters.parcelado) {
-            if (this.state.filters.parcelado === 'SIM') {
-                filtered = filtered.filter(t => t.total_parcelas !== null);
-            } else if (this.state.filters.parcelado === 'NAO') {
-                filtered = filtered.filter(t => t.total_parcelas === null);
-            }
-        }
-
-        // 4. Filtro de Recorrência / Fixas
-        if (this.state.filters.recorrente) {
-            if (this.state.filters.recorrente === 'SIM') {
-                filtered = filtered.filter(t => t.recorrente === true);
-            } else if (this.state.filters.recorrente === 'NAO') {
-                filtered = filtered.filter(t => !t.recorrente);
-            }
-        }
-
-        // 5. Filtro de Período (Vencimento)
-        if (this.state.filters.periodo) {
-            const cutoff = this.state.dia_corte || 14;
-            if (this.state.filters.periodo === 'ATE_CORTE') {
-                filtered = filtered.filter(t => {
-                    const dia = parseInt(t.data.split('-')[2]);
-                    return dia <= cutoff;
-                });
-            } else if (this.state.filters.periodo === 'DEPOIS_CORTE') {
-                filtered = filtered.filter(t => {
-                    const dia = parseInt(t.data.split('-')[2]);
-                    return dia > cutoff;
-                });
-            }
-        }
+        const filtered = this.getFilteredTransactions();
+        const origemSel = this.state.filters.origem;
 
         // Cálculos dinâmicos
         const sumReceitas = filtered.filter(t => t.tipo === 'RECEITA').reduce((acc, t) => acc + t.valor, 0);
@@ -1015,6 +1071,29 @@ class FinanceApp {
                                 <option value="DEPOIS_CORTE" ${this.state.filters.periodo === 'DEPOIS_CORTE' ? 'selected' : ''}>A partir do dia ${this.state.dia_corte + 1}</option>
                             </select>
                         </div>
+
+                        <!-- Filtro de Conta Bancária / Cartão de Crédito -->
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <label for="filter-origem" style="font-size: 0.78rem; color: var(--text-muted); font-weight: 500;">Conta / Cartão:</label>
+                            <select id="filter-origem" class="glass-select ${origemSel ? 'filter-select-active' : ''}" style="padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem;" onchange="app.setFilterOrigem(this.value)">
+                                <option value="" ${origemSel === '' ? 'selected' : ''}>Todas</option>
+                                <option value="ALL_CONTAS" ${origemSel === 'ALL_CONTAS' ? 'selected' : ''}>Somente Contas Bancárias</option>
+                                <option value="ALL_CARTOES" ${origemSel === 'ALL_CARTOES' ? 'selected' : ''}>Somente Cartões de Crédito</option>
+                                ${(this.state.accounts || []).length ? `
+                                <optgroup label="Contas Bancárias">
+                                    ${this.state.accounts.map(acc => `<option value="conta:${acc.id}" ${origemSel === `conta:${acc.id}` ? 'selected' : ''}>${acc.nome}</option>`).join('')}
+                                </optgroup>` : ''}
+                                ${(this.state.cards || []).length ? `
+                                <optgroup label="Cartões de Crédito">
+                                    ${this.state.cards.map(card => `<option value="cartao:${card.id}" ${origemSel === `cartao:${card.id}` ? 'selected' : ''}>${card.nome}</option>`).join('')}
+                                </optgroup>` : ''}
+                            </select>
+                        </div>
+
+                        ${this.hasActiveTransactionFilters() ? `
+                        <button class="btn btn-secondary" id="btn-limpar-filtros" style="padding: 0.45rem 0.9rem; font-size: 0.8rem;" onclick="app.clearTransactionFilters()">
+                            <i data-lucide="x" style="width: 14px; height: 14px;"></i> Limpar filtros
+                        </button>` : ''}
                     </div>
                     
                     <!-- Soma Dinâmica -->
@@ -2036,40 +2115,80 @@ class FinanceApp {
         `;
     }
 
-    // ==================== AÇÕES / APLICATIVOS DE FILTROS ====================
+    setFilterOrigem(origem) {
+        this.state.filters.origem = origem;
+        this.renderTransacoesFast();
+    }
+
+    hasActiveTransactionFilters() {
+        const f = this.state.filters;
+        return Boolean(f.tipo || f.categoria_id || f.parcelado || f.recorrente || f.periodo || f.origem || f.busca);
+    }
+
+    clearTransactionFilters() {
+        this.state.filters.tipo = '';
+        this.state.filters.categoria_id = '';
+        this.state.filters.parcelado = '';
+        this.state.filters.recorrente = '';
+        this.state.filters.periodo = '';
+        this.state.filters.origem = '';
+        this.state.filters.busca = '';
+        this.renderTransacoesFast();
+    }
+
+    // Atalho direto acionado ao clicar no BigNumber "Ainda Falta Receber"
+    verReceitasPendentes() {
+        this.state.filters.tipo = 'RECEITA';
+        this.state.filters.categoria_id = '';
+        this.state.filters.parcelado = '';
+        this.state.filters.recorrente = '';
+        this.state.filters.periodo = '';
+        this.state.filters.origem = '';
+        this.state.filters.busca = '';
+        window.location.hash = '#/transacoes';
+    }
+
+    // Re-renderiza a tabela e as somas instantaneamente em memória (zero requisições de rede)
+    renderTransacoesFast() {
+        if (this.state.activeView === 'transacoes') {
+            this.renderTransacoes();
+            lucide.createIcons();
+        } else {
+            this.refreshCurrentView();
+        }
+    }
 
     setFilterTipo(tipo) {
         this.state.filters.tipo = tipo;
-        this.refreshCurrentView();
+        this.renderTransacoesFast();
     }
 
     setFilterBusca(busca) {
         this.state.filters.busca = busca;
-        // Debounce de busca para evitar múltiplas requisições por digitação
         if (this.buscaTimeout) clearTimeout(this.buscaTimeout);
         this.buscaTimeout = setTimeout(() => {
-            this.refreshCurrentView();
-        }, 300);
+            this.renderTransacoesFast();
+        }, 80);
     }
 
     setFilterCategoria(catId) {
         this.state.filters.categoria_id = catId;
-        this.refreshCurrentView();
+        this.renderTransacoesFast();
     }
 
     setFilterParcelado(val) {
         this.state.filters.parcelado = val;
-        this.refreshCurrentView();
+        this.renderTransacoesFast();
     }
 
     setFilterRecorrente(val) {
         this.state.filters.recorrente = val;
-        this.refreshCurrentView();
+        this.renderTransacoesFast();
     }
 
     setFilterPeriodo(val) {
         this.state.filters.periodo = val;
-        this.refreshCurrentView();
+        this.renderTransacoesFast();
     }
 
     setFilterPeriodoFaturas(val) {
@@ -2925,7 +3044,9 @@ class FinanceApp {
                 throw new Error(err.error || 'Erro ao salvar transação');
             }
 
-            await this.loadBaseData();
+            // Invalida cache de transações e resumo do mês em memória para forçar dados frescos
+            this.state.transactions = null;
+            this.state.summary = null;
 
             if (!isEdit && document.getElementById('t-salvar-proxima').checked) {
                 // Limpa apenas valor, descricao, categoria
@@ -3849,22 +3970,23 @@ class FinanceApp {
 
     // Exportação em formato CSV
     exportToCSV() {
-        if (this.state.transactions.length === 0) {
-            alert("Nenhuma transação disponível para exportação.");
+        const transList = this.getFilteredTransactions ? this.getFilteredTransactions() : (this.state.transactions || []);
+        if (transList.length === 0) {
+            alert("Nenhuma transação disponível para exportação com os filtros atuais.");
             return;
         }
 
         // Cabeçalhos do CSV
         const headers = ["Data", "Tipo", "Descricao", "Categoria", "Origem_Destino", "Valor", "Pago_Confirmado"];
         
-        const rows = this.state.transactions.map(t => {
+        const rows = transList.map(t => {
             const origDest = t.tipo === 'RECEITA' ? (t.pagador_recebedor || '') : (t.cartao_credito_nome || t.conta_origem_nome || '');
             const cat = t.tipo === 'TRANSFERENCIA' ? `Transferência para ${t.conta_destino_nome}` : (t.categoria_nome || '');
             
             return [
                 t.data,
                 t.tipo,
-                `"${t.descricao.replace(/"/g, '""')}"`,
+                `"${(t.descricao || '').replace(/"/g, '""')}"`,
                 `"${cat}"`,
                 `"${origDest}"`,
                 t.valor,

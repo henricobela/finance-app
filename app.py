@@ -6,6 +6,7 @@ import json
 import shutil
 from datetime import datetime, date
 from flask import Flask, jsonify, request, render_template, send_from_directory, session
+from sqlalchemy.orm import joinedload
 from models import db, Usuario, ContaBancaria, Categoria, CartaoCredito, Transacao, Orcamento, MetaFinanceira, TaxaSGS, Investimento, Configuracao
 
 app = Flask(__name__)
@@ -18,6 +19,13 @@ if database_url:
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    # Pool de conexões persistente: evita abrir um novo handshake TCP/SSL com o Supabase a cada requisição
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'pool_recycle': 280,
+        'pool_size': 5,
+        'max_overflow': 10,
+    }
     db_path = None
 else:
     # Se não houver DATABASE_URL, verifica DATABASE_PATH (SQLite) ou usa o local padrão
@@ -40,6 +48,23 @@ def add_months(sourcedate, months):
     day = min(sourcedate.day, calendar.monthrange(year, month)[1])
     return date(year, month, day)
 
+# Cache em memória das recorrências já processadas por usuário.
+# Formato: { cpf: (fingerprint, mes_max_processado) }
+# O fingerprint (quantidade + maior id das transações recorrentes) muda sempre que uma recorrência
+# é criada, editada (recorrente on/off) ou excluída, invalidando o cache automaticamente — inclusive
+# entre múltiplos workers do gunicorn, pois é recalculado a partir do banco com uma única query leve.
+_recorrencias_cache = {}
+
+def _fingerprint_recorrencias(usuario_cpf):
+    row = db.session.query(
+        db.func.count(Transacao.id),
+        db.func.max(Transacao.id)
+    ).filter(
+        Transacao.usuario_cpf == usuario_cpf,
+        Transacao.recorrente == True
+    ).first()
+    return (row[0] or 0, row[1] or 0)
+
 # Processador automático de transações fixas/recorrentes para meses subsequentes
 def processar_recorrencias(usuario_cpf, target_mes_str=None):
     if not usuario_cpf:
@@ -54,13 +79,21 @@ def processar_recorrencias(usuario_cpf, target_mes_str=None):
     except Exception:
         return
 
+    # Atalho rápido: se nada mudou desde o último processamento e o mês alvo já foi coberto, não faz nada
+    fingerprint = _fingerprint_recorrencias(usuario_cpf)
+    cached = _recorrencias_cache.get(usuario_cpf)
+    if cached and cached[0] == fingerprint and cached[1] >= target_mes_str:
+        return
+    mes_cache = max(target_mes_str, cached[1]) if (cached and cached[0] == fingerprint) else target_mes_str
+
+    if fingerprint[0] == 0:
+        _recorrencias_cache[usuario_cpf] = (fingerprint, mes_cache)
+        return
+
     transacoes_recorrentes = Transacao.query.filter_by(
         usuario_cpf=usuario_cpf,
         recorrente=True
     ).all()
-    
-    if not transacoes_recorrentes:
-        return
         
     configs_del = Configuracao.query.filter(
         Configuracao.usuario_cpf == usuario_cpf,
@@ -68,30 +101,39 @@ def processar_recorrencias(usuario_cpf, target_mes_str=None):
     ).all()
     chaves_del = {c.chave for c in configs_del}
 
-    grupos_processados = set()
-    novos_gerados = False
-
+    # Garante grupo em todas as recorrências antigas (commit único em lote)
+    ajustou_grupo = False
     for rec in transacoes_recorrentes:
         if not rec.grupo_parcelamento_id:
             rec.grupo_parcelamento_id = f"rec_{rec.id}"
-            db.session.commit()
+            ajustou_grupo = True
+    if ajustou_grupo:
+        db.session.commit()
 
-        gid = rec.grupo_parcelamento_id
-        if gid in grupos_processados:
-            continue
-        grupos_processados.add(gid)
+    gids = {rec.grupo_parcelamento_id for rec in transacoes_recorrentes if f"del_all_{rec.grupo_parcelamento_id}" not in chaves_del}
+    if not gids:
+        _recorrencias_cache[usuario_cpf] = (fingerprint, mes_cache)
+        return
 
-        if f"del_all_{gid}" in chaves_del:
-            continue
+    # Uma única query para todas as instâncias de todos os grupos (antes era 1 query por grupo)
+    todas_instancias = Transacao.query.filter(
+        Transacao.usuario_cpf == usuario_cpf,
+        Transacao.grupo_parcelamento_id.in_(gids)
+    ).order_by(Transacao.data.asc(), Transacao.id.asc()).all()
 
-        instancias_grupo = Transacao.query.filter_by(
-            usuario_cpf=usuario_cpf,
-            grupo_parcelamento_id=gid
-        ).order_by(Transacao.data.asc()).all()
+    instancias_por_grupo = {}
+    for t in todas_instancias:
+        instancias_por_grupo.setdefault(t.grupo_parcelamento_id, []).append(t)
 
+    cartoes_map = {c.id: c for c in CartaoCredito.query.filter_by(usuario_cpf=usuario_cpf).all()}
+    novos_gerados = False
+
+    for gid in gids:
+        instancias_grupo = instancias_por_grupo.get(gid)
         if not instancias_grupo:
             continue
 
+        meses_existentes = {t.data.strftime('%Y-%m') for t in instancias_grupo}
         base_rec = instancias_grupo[0]
         data_base = base_rec.data
 
@@ -107,11 +149,11 @@ def processar_recorrencias(usuario_cpf, target_mes_str=None):
                 months_diff += 1
                 continue
 
-            ja_existe = any(t.data.strftime('%Y-%m') == next_mes_str for t in instancias_grupo)
+            ja_existe = next_mes_str in meses_existentes
 
             if not ja_existe:
                 if base_rec.tipo == 'DESPESA' and base_rec.cartao_credito_id:
-                    cartao = CartaoCredito.query.filter_by(id=base_rec.cartao_credito_id, usuario_cpf=usuario_cpf).first()
+                    cartao = cartoes_map.get(base_rec.cartao_credito_id)
                     if cartao:
                         cartao.limite_disponivel -= base_rec.valor
 
@@ -132,13 +174,17 @@ def processar_recorrencias(usuario_cpf, target_mes_str=None):
                     usuario_cpf=usuario_cpf
                 )
                 db.session.add(nova_instancia)
-                instancias_grupo.append(nova_instancia)
+                meses_existentes.add(next_mes_str)
                 novos_gerados = True
 
             months_diff += 1
 
     if novos_gerados:
         db.session.commit()
+        # Novas instâncias alteram o fingerprint; recalcula para manter o cache válido
+        fingerprint = _fingerprint_recorrencias(usuario_cpf)
+
+    _recorrencias_cache[usuario_cpf] = (fingerprint, mes_cache)
 
 # Inicialização e semente de dados de teste (Seed)
 def seed_categories_for_user(cpf):
@@ -245,6 +291,21 @@ with app.app_context():
                         conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN usuario_cpf VARCHAR(11) REFERENCES usuarios(cpf)"))
                     except Exception as e:
                         print(f"Erro ao adicionar usuario_cpf na tabela {table}: {e}")
+
+        # Índices para acelerar os filtros mais usados (por usuário/mês, grupos recorrentes e cartões)
+        index_statements = [
+            "CREATE INDEX IF NOT EXISTS ix_transacoes_usuario_data ON transacoes (usuario_cpf, data)",
+            "CREATE INDEX IF NOT EXISTS ix_transacoes_usuario_recorrente ON transacoes (usuario_cpf, recorrente)",
+            "CREATE INDEX IF NOT EXISTS ix_transacoes_grupo ON transacoes (grupo_parcelamento_id)",
+            "CREATE INDEX IF NOT EXISTS ix_transacoes_cartao ON transacoes (cartao_credito_id)",
+            "CREATE INDEX IF NOT EXISTS ix_transacoes_fatura_cartao ON transacoes (fatura_cartao_id)",
+            "CREATE INDEX IF NOT EXISTS ix_configuracoes_usuario ON configuracoes (usuario_cpf)",
+        ]
+        for stmt in index_statements:
+            try:
+                conn.execute(db.text(stmt))
+            except Exception as e:
+                print(f"Aviso ao criar índice: {e}")
         conn.commit()
 
     # 3. Cria o usuário do Henrico se não existir (senha padrão '123456')
@@ -365,7 +426,7 @@ def delete_conta(id):
 
 @app.route('/api/cartoes', methods=['GET'])
 def get_cartoes():
-    cartoes = CartaoCredito.query.filter_by(usuario_cpf=session['user_cpf']).all()
+    cartoes = CartaoCredito.query.options(joinedload(CartaoCredito.conta_bancaria)).filter_by(usuario_cpf=session['user_cpf']).all()
     return jsonify([c.to_dict() for c in cartoes])
 
 @app.route('/api/cartoes', methods=['POST'])
@@ -788,7 +849,10 @@ def poupar_meta(id):
     else:
         return jsonify({'error': 'Tipo de operação inválido'}), 400
         
-    db.se# ==================== API: TRANSAÇÕES (RECEITA / DESPESA / TRANSFERÊNCIA) ====================
+    db.session.commit()
+    return jsonify(meta.to_dict())
+
+# ==================== API: TRANSAÇÕES (RECEITA / DESPESA / TRANSFERÊNCIA) ====================
 
 @app.route('/api/transacoes', methods=['GET'])
 def get_transacoes():
@@ -803,7 +867,14 @@ def get_transacoes():
     if session.get('user_cpf'):
         processar_recorrencias(session['user_cpf'], mes)
         
-    query = Transacao.query.filter_by(usuario_cpf=session['user_cpf'])
+    # Eager loading: carrega categoria/contas/cartões no mesmo SELECT (evita N+1 queries no to_dict)
+    query = Transacao.query.options(
+        joinedload(Transacao.categoria),
+        joinedload(Transacao.conta_origem),
+        joinedload(Transacao.conta_destino),
+        joinedload(Transacao.cartao_credito),
+        joinedload(Transacao.fatura_cartao)
+    ).filter_by(usuario_cpf=session['user_cpf'])
     
     if is_pagamento_fatura == 'true':
         query = query.filter(Transacao.fatura_cartao_id.isnot(None))
@@ -1320,31 +1391,14 @@ def get_resumo():
     categorias = Categoria.query.filter_by(usuario_cpf=session['user_cpf']).all()
     orcamentos = Orcamento.query.filter_by(mes=mes, usuario_cpf=session['user_cpf']).all()
     
-    # Buscar transações do mês selecionado
-    transacoes_mes = Transacao.query.filter(
+    # Busca em lote único as transações do mês selecionado + 6 meses futuros (projeção)
+    transacoes_periodo = Transacao.query.filter(
         Transacao.usuario_cpf == session['user_cpf'],
         Transacao.data >= data_ini,
-        Transacao.data <= data_fim
-    ).all()
-    
-    # Buscar todas as transações recorrentes ativas
-    recorrentes = Transacao.query.filter(
-        Transacao.recorrente == True,
-        Transacao.usuario_cpf == session['user_cpf']
-    ).all()
-    
-    # Calcular data limite para a projeção de 6 meses futuros
-    fut_limite_ano = ano + (mes_int + 6 - 1) // 12
-    fut_limite_mes = (mes_int + 6 - 1) % 12 + 1
-    ultimo_dia_limite = calendar.monthrange(fut_limite_ano, fut_limite_mes)[1]
-    data_limite_projecao = date(fut_limite_ano, fut_limite_mes, ultimo_dia_limite)
-    
-    # Buscar todas as transações futuras para projeção em lote único
-    transacoes_futuro = Transacao.query.filter(
-        Transacao.usuario_cpf == session['user_cpf'],
-        Transacao.data > data_fim,
         Transacao.data <= data_limite_projecao
     ).all()
+    transacoes_mes = [t for t in transacoes_periodo if t.data <= data_fim]
+    transacoes_futuro = [t for t in transacoes_periodo if t.data > data_fim]
 
     # --- PROCESSAMENTO EM MEMÓRIA ---
     
@@ -1427,6 +1481,10 @@ def get_resumo():
     )
     
     total_falta_pagar = falta_pagar_faturas + falta_pagar_contas
+
+    # 8.1 Calcular o que ainda falta receber no mês (receitas pendentes / não confirmadas)
+    falta_receber = sum(t.valor for t in transacoes_mes if t.tipo == 'RECEITA' and not t.pago_ou_confirmado)
+    total_recebido = sum(t.valor for t in transacoes_mes if t.tipo == 'RECEITA' and t.pago_ou_confirmado)
  
     # 9. Projeção para os próximos 6 meses
     projecoes = []
@@ -1466,6 +1524,8 @@ def get_resumo():
         'distribuicao_categorias': distribuicao_categorias,
         'orcamentos_progresso': orcamentos_progresso,
         'falta_pagar': total_falta_pagar,
+        'falta_receber': falta_receber,
+        'total_recebido': total_recebido,
         'projecoes': projecoes,
         'fluxo_pessoas': fluxo_pessoas
     })
