@@ -15,9 +15,11 @@ app.secret_key = os.environ.get('SECRET_KEY', 'antigravity_lucena_secret_key_998
 # Configuração do Banco de Dados (PostgreSQL/Supabase ou SQLite como Fallback)
 database_url = os.environ.get('DATABASE_URL')
 if database_url:
-    # Corrige o prefixo postgres:// que o Render pode injetar, pois o SQLAlchemy exige postgresql://
+    # Garante o driver psycopg2 explicitamente para evitar que o SQLAlchemy tente carregar o psycopg (v3)
     if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
+        database_url = database_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif database_url.startswith("postgresql://") and not database_url.startswith("postgresql+"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     # Pool de conexões persistente: evita abrir um novo handshake TCP/SSL com o Supabase a cada requisição
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
