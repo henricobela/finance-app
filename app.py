@@ -1487,7 +1487,12 @@ def get_resumo():
     # 8.1 Calcular o que ainda falta receber no mês (receitas pendentes / não confirmadas)
     falta_receber = sum(t.valor for t in transacoes_mes if t.tipo == 'RECEITA' and not t.pago_ou_confirmado)
     total_recebido = sum(t.valor for t in transacoes_mes if t.tipo == 'RECEITA' and t.pago_ou_confirmado)
- 
+
+    # 8.2 Balanço projetado: saldo já disponível nas contas + o que ainda vai entrar - o que ainda falta pagar.
+    # (O saldo das contas já reflete receitas recebidas e despesas pagas, então só somamos o que está pendente.)
+    balanco_projetado = saldo_geral + falta_receber - total_falta_pagar
+    balanco_competencia = receitas_mes - despesas_mes
+
     # 9. Projeção para os próximos 6 meses
     projecoes = []
     meses_nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -1521,7 +1526,8 @@ def get_resumo():
         'saldo_geral': saldo_geral,
         'total_receitas': receitas_mes,
         'total_despesas': despesas_mes,
-        'balanco': receitas_mes - despesas_mes,
+        'balanco': round(balanco_projetado, 2),
+        'balanco_competencia': round(balanco_competencia, 2),
         'faturas_cartoes': cartoes_info,
         'distribuicao_categorias': distribuicao_categorias,
         'orcamentos_progresso': orcamentos_progresso,

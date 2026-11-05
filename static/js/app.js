@@ -621,7 +621,10 @@ class FinanceApp {
                         <i data-lucide="scale"></i>
                     </div>
                     <div class="summary-card-body">
-                        <div class="summary-value" style="color: var(--solid-white);">${fmt(s.balanco)}</div>
+                        <div class="summary-value" style="color: ${s.balanco >= 0 ? '#22c55e' : '#ef4444'};">${fmt(s.balanco)}</div>
+                        <div class="summary-card-sub" title="Saldo disponível + falta receber - falta pagar">
+                            Saldo + a receber − a pagar
+                        </div>
                     </div>
                 </div>
 
