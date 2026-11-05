@@ -437,6 +437,11 @@ class FinanceApp {
                 subtitleEl.textContent = 'Acompanhe as faturas dos seus cartões de crédito e histórico de pagamentos.';
                 this.renderFaturas();
                 break;
+            case 'recebimentos':
+                titleEl.textContent = 'Recebimentos do Mês';
+                subtitleEl.textContent = 'Acompanhe as receitas e parcelas a receber no mês.';
+                this.renderRecebimentos();
+                break;
             case 'pagamentos':
                 titleEl.textContent = 'Pagamentos do Mês';
                 subtitleEl.textContent = 'Gerencie faturas de cartão e despesas fixas a pagar no mês.';
@@ -491,6 +496,7 @@ class FinanceApp {
             case 'transacoes': this.renderTransacoes(); break;
             case 'contas-cartoes': this.renderContasCartoes(); break;
             case 'faturas': this.renderFaturas(); break;
+            case 'recebimentos': this.renderRecebimentos(); break;
             case 'pagamentos': this.renderPagamentos(); break;
             case 'orcamentos': this.renderOrcamentos(); break;
             case 'metas': this.renderMetas(); break;
@@ -545,6 +551,9 @@ class FinanceApp {
             case 'faturas':
                 jobs.billPayments = getJSON('/api/transacoes?is_pagamento_fatura=true');
                 jobs.allFaturas = getJSON('/api/faturas');
+                break;
+            case 'recebimentos':
+                jobs.transactions = getJSON(`/api/transacoes?mes=${mes}`);
                 break;
             case 'pagamentos':
                 jobs.transactions = getJSON(`/api/transacoes?mes=${mes}`);
@@ -1515,6 +1524,204 @@ class FinanceApp {
         this.loadAndRenderFaturaDetails();
     }
 
+    setRecebimentosFilter(type) {
+        this.state.recebimentosFilter = type;
+        this.renderRecebimentos();
+        lucide.createIcons();
+    }
+
+    renderRecebimentos() {
+        const viewPanel = document.getElementById('app-view');
+        if (!this.state.transactions) {
+            this.showLoadingState(viewPanel);
+            return;
+        }
+
+        const fmt = val => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+        const currentMonth = this.state.currentMonth;
+        const soma = arr => arr.reduce((acc, t) => acc + t.valor, 0);
+
+        const receitas = this.state.transactions
+            .filter(t => t.tipo === 'RECEITA')
+            .sort((a, b) => a.data.localeCompare(b.data));
+
+        const recebidas = receitas.filter(t => t.pago_ou_confirmado);
+        const pendentes = receitas.filter(t => !t.pago_ou_confirmado);
+        const parceladas = receitas.filter(t => t.total_parcelas);
+        const fixas = receitas.filter(t => t.recorrente);
+
+        const totalMes = soma(receitas);
+        const totalRecebido = soma(recebidas);
+        const totalPendente = soma(pendentes);
+        const pctRecebido = totalMes > 0 ? Math.round((totalRecebido / totalMes) * 100) : 0;
+
+        const filterType = this.state.recebimentosFilter || 'todas';
+        let filtradas = receitas;
+        if (filterType === 'pendentes') filtradas = pendentes;
+        else if (filterType === 'recebidas') filtradas = recebidas;
+        else if (filterType === 'parceladas') filtradas = parceladas;
+        else if (filterType === 'fixas') filtradas = fixas;
+
+        const contaNome = id => {
+            const c = (this.state.accounts || []).find(a => a.id === id);
+            return c ? c.nome : '—';
+        };
+
+        const filtroBtn = (key, label) => `
+            <button onclick="app.setRecebimentosFilter('${key}')" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; border: none; background: ${filterType === key ? 'var(--primary-color)' : 'transparent'}; color: ${filterType === key ? '#fff' : 'var(--text-color)'}; font-weight: ${filterType === key ? '600' : '400'}; border-radius: 7px; cursor: pointer;">${label}</button>`;
+
+        viewPanel.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h2 style="font-weight: 700; font-size: 1.25rem;">Painel de Recebimentos do Mês (${currentMonth})</h2>
+                    <p class="text-gray" style="font-size: 0.85rem; margin-top: 0.2rem;">Receitas, parcelas e entradas fixas previstas para o mês.</p>
+                </div>
+                <button class="btn btn-primary" onclick="app.openModalTransacao('RECEITA')" style="padding: 0.6rem 1.2rem; border-radius: 10px; font-weight: 600;">
+                    <i data-lucide="plus-circle" style="width: 18px; height: 18px; vertical-align: middle; margin-right: 0.4rem;"></i>
+                    + Novo Recebimento
+                </button>
+            </div>
+
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="glass glass-card summary-card">
+                    <div class="summary-card-header">
+                        <span>Total Previsto no Mês</span>
+                        <i data-lucide="calculator"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value">${fmt(totalMes)}</div>
+                        <div class="summary-card-sub">${receitas.length} recebimento(s)</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card" style="border-color: rgba(16, 185, 129, 0.3);">
+                    <div class="summary-card-header">
+                        <span>Já Recebido</span>
+                        <i data-lucide="check-circle-2" style="color: #10b981;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #10b981;">${fmt(totalRecebido)}</div>
+                        <div class="summary-card-sub">${pctRecebido}% do previsto</div>
+                        <div class="receber-progress"><div class="receber-progress-fill" style="width: ${Math.min(100, pctRecebido)}%"></div></div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card" style="border-color: rgba(34, 197, 94, 0.25);">
+                    <div class="summary-card-header">
+                        <span>Ainda Falta Receber</span>
+                        <i data-lucide="hourglass" style="color: #22c55e;"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value" style="color: #22c55e;">${fmt(totalPendente)}</div>
+                        <div class="summary-card-sub">${pendentes.length} pendente(s)</div>
+                    </div>
+                </div>
+
+                <div class="glass glass-card summary-card">
+                    <div class="summary-card-header">
+                        <span>Parcelas do Mês</span>
+                        <i data-lucide="layers"></i>
+                    </div>
+                    <div class="summary-card-body">
+                        <div class="summary-value">${fmt(soma(parceladas))}</div>
+                        <div class="summary-card-sub">${parceladas.length} parcela(s) · Fixas: ${fmt(soma(fixas))}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 0.8rem;">
+                    <h3 style="font-weight: 600; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                        <i data-lucide="hand-coins" style="width: 18px; height: 18px; color: var(--primary-color);"></i>
+                        Recebimentos do Mês
+                    </h3>
+                    <div style="display: inline-flex; flex-wrap: wrap; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 10px; border: 1px solid var(--glass-border); gap: 4px;">
+                        ${filtroBtn('todas', 'Todos do Mês')}
+                        ${filtroBtn('pendentes', 'Pendentes')}
+                        ${filtroBtn('recebidas', 'Recebidos')}
+                        ${filtroBtn('parceladas', 'Parcelados')}
+                        ${filtroBtn('fixas', 'Fixos')}
+                    </div>
+                </div>
+
+                ${filtradas.length === 0 ? `
+                    <div class="glass glass-card" style="padding: 2.5rem; text-align: center; color: var(--text-muted); border-radius: 14px;">
+                        Nenhum recebimento encontrado com o filtro selecionado.
+                    </div>
+                ` : `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem;">
+                        ${filtradas.map(t => {
+                            const dt = new Date(t.data + 'T00:00:00');
+                            const dateFmt = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                            const isGrupo = !!t.grupo_parcelamento_id || !!t.recorrente;
+                            return `
+                                <div class="glass glass-card" style="padding: 1.4rem; display: flex; flex-direction: column; justify-content: space-between; border-radius: 16px; border-top: 3px solid ${t.pago_ou_confirmado ? '#10b981' : '#22c55e55'};">
+                                    <div>
+                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.8rem; gap: 0.5rem;">
+                                            <div>
+                                                <span style="font-weight: 700; font-size: 1.05rem; color: var(--text-color); display: block; line-height: 1.2;">
+                                                    ${t.descricao}
+                                                    ${t.total_parcelas ? `<small class="text-gray" style="font-weight: 500;">(${t.numero_parcela}/${t.total_parcelas})</small>` : ''}
+                                                </span>
+                                                <span style="font-size: 0.75rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.3rem;">
+                                                    <i data-lucide="${t.categoria_icone || 'tag'}" style="width: 12px; height: 12px;"></i> ${t.categoria_nome || 'Geral'}
+                                                    ${t.recorrente ? ' · Fixa' : ''}
+                                                </span>
+                                            </div>
+                                            <span class="badge ${t.pago_ou_confirmado ? 'pago' : 'pendente'}" style="padding: 0.25rem 0.65rem; font-weight: 600; font-size: 0.75rem; flex-shrink: 0;">
+                                                ${t.pago_ou_confirmado ? 'RECEBIDO' : 'PENDENTE'}
+                                            </span>
+                                        </div>
+
+                                        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 10px; padding: 0.75rem; margin-bottom: 1rem;">
+                                            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.3rem;">
+                                                <span class="text-gray">Data prevista:</span>
+                                                <span style="font-weight: 600; color: var(--text-color);">${dateFmt}</span>
+                                            </div>
+                                            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.3rem;">
+                                                <span class="text-gray">Conta de destino:</span>
+                                                <span style="font-weight: 600; color: var(--text-color);">${contaNome(t.conta_destino_id)}</span>
+                                            </div>
+                                            ${t.pagador_recebedor ? `
+                                            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.3rem;">
+                                                <span class="text-gray">Pagador:</span>
+                                                <span style="font-weight: 600; color: var(--text-color);">${t.pagador_recebedor}</span>
+                                            </div>` : ''}
+                                            <div style="display: flex; justify-content: space-between; font-size: 0.82rem;">
+                                                <span class="text-gray">Responsável:</span>
+                                                <span style="font-weight: 600; color: var(--text-color);">${t.pessoa || 'Compartilhado'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+                                            <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;">Valor</span>
+                                            <span style="font-size: 1.3rem; font-weight: 800; color: #22c55e;">${fmt(t.valor)}</span>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.4rem; border-top: 1px solid var(--glass-border); padding-top: 0.8rem;">
+                                        <button class="btn ${t.pago_ou_confirmado ? 'btn-secondary' : 'btn-primary'}"
+                                                style="flex: 1; padding: 0.55rem; font-size: 0.8rem; border-radius: 8px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.4rem;"
+                                                onclick="app.toggleConfirmacao(${t.id})">
+                                            <i data-lucide="${t.pago_ou_confirmado ? 'check-circle' : 'clock'}" style="width: 14px; height: 14px;"></i>
+                                            ${t.pago_ou_confirmado ? 'Recebido' : 'Marcar Recebido'}
+                                        </button>
+                                        <button class="btn-icon" title="Editar Recebimento" onclick="app.openModalEditTransacao(${t.id})" style="padding: 0.5rem; background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-color);">
+                                            <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i>
+                                        </button>
+                                        <button class="btn-icon" title="Excluir Recebimento" onclick="app.handleDeleteTransacao(${t.id}, ${isGrupo})" style="padding: 0.5rem; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 8px;">
+                                            <i data-lucide="trash-2" style="width: 15px; height: 15px;"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `}
+            </div>
+        `;
+    }
+
     setPagamentosFilter(type) {
         this.state.pagamentosFilter = type;
         this.renderPagamentos();
@@ -2462,7 +2669,7 @@ class FinanceApp {
     }
 
     // Nova Transação Modal
-    openModalTransacao() {
+    openModalTransacao(tipoInicial) {
         const today = new Date();
         document.getElementById('t-id').value = '';
         document.querySelector('#modal-transacao h2').textContent = 'Nova Transação';
@@ -2470,7 +2677,13 @@ class FinanceApp {
         document.getElementById('group-salvar-proxima').style.display = 'block';
         document.getElementById('form-transacao').reset();
         document.getElementById('t-data').value = today.toISOString().split('T')[0];
-        
+
+        // Permite abrir o modal já com um tipo pré-selecionado (ex.: RECEITA na aba de Recebimentos)
+        if (tipoInicial) {
+            const radioTipo = document.querySelector(`input[name="tipo"][value="${tipoInicial}"]`);
+            if (radioTipo) radioTipo.checked = true;
+        }
+
         // Dispara mudanças de estado do formulário para exibir campos padrões
         this.onTipoTransacaoChange();
         this.openModal('modal-transacao');
@@ -2554,11 +2767,11 @@ class FinanceApp {
             grpContaDestino.style.display = '';
             grpFormaPagamento.style.display = 'none';
             grpCartao.style.display = 'none';
-            grpParcelamento.style.display = 'none';
+            grpParcelamento.style.display = '';
             grpPagadorRecebedor.style.display = '';
             grpConfirmado.style.display = '';
             grpRecorrente.style.display = '';
-            
+
             labelPagador.textContent = 'Payer / Origem';
             labelConfirmado.textContent = 'Confirmado / Recebido';
         } else if (tipo === 'DESPESA') {
@@ -2591,6 +2804,12 @@ class FinanceApp {
             labelContaOrigem.textContent = 'Conta de Origem';
             labelConfirmado.textContent = 'Executada';
         }
+
+        const labelParcelado = document.getElementById('label-parcelado');
+        if (labelParcelado) labelParcelado.textContent = tipo === 'RECEITA' ? 'Recebimento Parcelado' : 'Compra Parcelada';
+
+        // Ao editar, o parcelamento nunca é exibido (evita inconsistências em séries de parcelas)
+        if (document.getElementById('t-id').value) grpParcelamento.style.display = 'none';
     }
 
     onFormaPagamentoChange() {
@@ -2611,7 +2830,7 @@ class FinanceApp {
             grpContaOrigem.style.display = 'none';
             grpCartao.style.display = '';
             grpConfirmado.style.display = 'none'; // Despesa de cartão de crédito não é conciliada manualmente de imediato
-            grpParcelamento.style.display = '';
+            grpParcelamento.style.display = document.getElementById('t-id').value ? 'none' : '';
         }
     }
 
@@ -2992,6 +3211,9 @@ class FinanceApp {
         if (tipo === 'RECEITA') {
             conta_destino_id = document.getElementById('t-conta-destino').value || null;
             pago_ou_confirmado = document.getElementById('t-confirmado').checked;
+            if (document.getElementById('t-parcelado').checked) {
+                total_parcelas = parseInt(document.getElementById('t-parcelas').value);
+            }
         } else if (tipo === 'DESPESA') {
             const fp = document.getElementById('t-forma-pagamento').value;
             if (fp === 'CONTA') {

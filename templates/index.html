@@ -132,6 +132,10 @@
                     <i data-lucide="receipt"></i>
                     <span>Faturas</span>
                 </a>
+                <a href="#/recebimentos" class="menu-item" data-view="recebimentos">
+                    <i data-lucide="hand-coins"></i>
+                    <span>Recebimentos do Mês</span>
+                </a>
                 <a href="#/pagamentos" class="menu-item" data-view="pagamentos">
                     <i data-lucide="calendar-check"></i>
                     <span>Pagamentos do Mês</span>
@@ -308,7 +312,7 @@
                             <div class="form-group inline-checkbox" style="margin-bottom: 0;">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="t-parcelado" onchange="app.onParceladoChange()">
-                                    <span>Compra Parcelada</span>
+                                    <span id="label-parcelado">Compra Parcelada</span>
                                 </label>
                             </div>
                             <div class="form-group" id="group-parcelas-qtd" style="display: none; margin-bottom: 0;">

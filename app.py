@@ -935,11 +935,47 @@ def create_transacao():
     t_date = datetime.strptime(data_str, "%Y-%m-%d").date()
     
     # Se for parcelamento, geramos multiplas parcelas futuras
-    if tipo == 'DESPESA' and total_parcelas and int(total_parcelas) > 1:
+    if tipo in ('DESPESA', 'RECEITA') and total_parcelas and int(total_parcelas) > 1:
         total_p = int(total_parcelas)
         grupo_id = str(uuid.uuid4())
-        valor_parcela = valor / total_p
-        
+        # Arredonda em centavos e joga a diferença na última parcela para a soma bater com o total
+        valor_parcela_base = round(valor / total_p, 2)
+        valor_ultima_parcela = round(valor - valor_parcela_base * (total_p - 1), 2)
+
+        if tipo == 'RECEITA':
+            # Receita parcelada: cada parcela entra na conta de destino no seu mês
+            transacoes_criadas = []
+            for i in range(1, total_p + 1):
+                valor_parcela = valor_ultima_parcela if i == total_p else valor_parcela_base
+                status_confirmado = bool(i == 1 and pago_ou_confirmado)
+                transacao = Transacao(
+                    tipo=tipo,
+                    descricao=descricao,
+                    valor=valor_parcela,
+                    data=add_months(t_date, i - 1),
+                    categoria_id=categoria_id,
+                    conta_destino_id=conta_destino_id,
+                    pago_ou_confirmado=status_confirmado,
+                    pagador_recebedor=pagador_recebedor,
+                    recorrente=False,
+                    grupo_parcelamento_id=grupo_id,
+                    numero_parcela=i,
+                    total_parcelas=total_p,
+                    pessoa=pessoa,
+                    usuario_cpf=session['user_cpf']
+                )
+                db.session.add(transacao)
+
+                if status_confirmado and conta_destino_id:
+                    conta = ContaBancaria.query.filter_by(id=conta_destino_id, usuario_cpf=session['user_cpf']).first()
+                    if conta:
+                        conta.saldo_atual += valor_parcela
+
+                transacoes_criadas.append(transacao)
+
+            db.session.commit()
+            return jsonify([t.to_dict() for t in transacoes_criadas]), 201
+
         cartao = None
         if cartao_credito_id:
             cartao = CartaoCredito.query.filter_by(id=cartao_credito_id, usuario_cpf=session['user_cpf']).first()
@@ -950,7 +986,8 @@ def create_transacao():
         transacoes_criadas = []
         for i in range(1, total_p + 1):
             parcela_date = add_months(t_date, i - 1)
-            
+            valor_parcela = valor_ultima_parcela if i == total_p else valor_parcela_base
+
             # Nas parcelas de cartão, o pagamento efetivo é na fatura do mês correspondente
             status_confirmado = False
             if i == 1 and pago_ou_confirmado and not cartao_credito_id:
